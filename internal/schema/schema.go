@@ -11,7 +11,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/meoyawn/chty-go/internal/chtype"
+	"github.com/meoyawn/clickgen/internal/chtype"
 )
 
 type Column struct {

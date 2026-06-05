@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/meoyawn/chty-go/internal/codegen"
-	fixture "github.com/meoyawn/chty-go/internal/dbtest/generated"
-	"github.com/meoyawn/chty-go/internal/parser"
-	"github.com/meoyawn/chty-go/internal/schema"
-	"github.com/meoyawn/chty-go/internal/validator"
+	"github.com/meoyawn/clickgen/internal/codegen"
+	fixture "github.com/meoyawn/clickgen/internal/dbtest/generated"
+	"github.com/meoyawn/clickgen/internal/parser"
+	"github.com/meoyawn/clickgen/internal/schema"
+	"github.com/meoyawn/clickgen/internal/validator"
 	mobyclient "github.com/moby/moby/client"
 	"github.com/ory/dockertest/v4"
 )
@@ -26,8 +26,8 @@ const (
 	clickHousePassword    = "admin"
 	dbtestPackageTimeout  = 10 * time.Second
 	dbtestCleanupTimeout  = 5 * time.Second
-	dbtestContainerName   = "chty-go-dbtest-clickhouse"
-	dbtestContainerLabel  = "github.com/meoyawn/chty-go.dbtest"
+	dbtestContainerName   = "clickgen-dbtest-clickhouse"
+	dbtestContainerLabel  = "github.com/meoyawn/clickgen.dbtest"
 	dbtestContainerLabelV = "true"
 )
 
@@ -171,8 +171,8 @@ func setupFixture() error {
 	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
 	defer cancel()
 	statements := []string{
-		"DROP TABLE IF EXISTS chty_users",
-		"CREATE TABLE chty_users (user_id Int64, username String, age Int32) ENGINE = Memory",
+		"DROP TABLE IF EXISTS clickgen_users",
+		"CREATE TABLE clickgen_users (user_id Int64, username String, age Int32) ENGINE = Memory",
 	}
 	for _, stmt := range statements {
 		if err := testConn.Exec(ctx, stmt); err != nil {
@@ -257,7 +257,7 @@ func TestGeneratedExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count uint64
-	if err := conn.QueryRow(ctx, "SELECT count() FROM chty_users WHERE user_id = 1").Scan(&count); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT count() FROM clickgen_users WHERE user_id = 1").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -283,7 +283,7 @@ func TestSchemaDriftValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "chty_gen.go")
+	path := filepath.Join(t.TempDir(), "clickgen_gen.go")
 	if err := os.WriteFile(path, generated, 0o644); err != nil {
 		t.Fatal(err)
 	}

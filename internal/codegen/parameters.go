@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/meoyawn/chty-go/internal/chtype"
+	"github.com/meoyawn/clickgen/internal/chtype"
 )
 
 type queryParameterKind int

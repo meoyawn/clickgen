@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/meoyawn/chty-go/internal/chtype"
-	"github.com/meoyawn/chty-go/internal/parser"
-	"github.com/meoyawn/chty-go/internal/schema"
+	"github.com/meoyawn/clickgen/internal/chtype"
+	"github.com/meoyawn/clickgen/internal/parser"
+	"github.com/meoyawn/clickgen/internal/schema"
 )
 
 type Parameter struct {
@@ -47,12 +47,12 @@ func ExtractGeneratedQueries(path string) ([]GeneratedQuery, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "// chty:") {
+		if !strings.HasPrefix(line, "// clickgen:") {
 			continue
 		}
 		parts := strings.Split(line, "\t")
 		switch parts[0] {
-		case "// chty:query":
+		case "// clickgen:query":
 			if len(parts) != 4 {
 				return nil, fmt.Errorf("invalid query metadata line: %s", line)
 			}
@@ -66,7 +66,7 @@ func ExtractGeneratedQueries(path string) ([]GeneratedQuery, error) {
 			}
 			indexByName[parts[1]] = len(queries)
 			queries = append(queries, GeneratedQuery{Name: parts[1], Kind: kind, SQL: sql})
-		case "// chty:param":
+		case "// clickgen:param":
 			if len(parts) != 5 {
 				return nil, fmt.Errorf("invalid parameter metadata line: %s", line)
 			}
@@ -87,7 +87,7 @@ func ExtractGeneratedQueries(path string) ([]GeneratedQuery, error) {
 				ClickHouseType: chType,
 				GoType:         goType,
 			})
-		case "// chty:result":
+		case "// clickgen:result":
 			if len(parts) != 5 {
 				return nil, fmt.Errorf("invalid result metadata line: %s", line)
 			}
@@ -114,7 +114,7 @@ func ExtractGeneratedQueries(path string) ([]GeneratedQuery, error) {
 		return nil, err
 	}
 	if len(queries) == 0 {
-		return nil, fmt.Errorf("could not find chty metadata in %s", path)
+		return nil, fmt.Errorf("could not find clickgen metadata in %s", path)
 	}
 	return queries, nil
 }

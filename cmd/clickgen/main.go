@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/meoyawn/chty-go/internal/chtype"
-	"github.com/meoyawn/chty-go/internal/codegen"
-	"github.com/meoyawn/chty-go/internal/parser"
-	"github.com/meoyawn/chty-go/internal/schema"
-	"github.com/meoyawn/chty-go/internal/validator"
+	"github.com/meoyawn/clickgen/internal/chtype"
+	"github.com/meoyawn/clickgen/internal/codegen"
+	"github.com/meoyawn/clickgen/internal/parser"
+	"github.com/meoyawn/clickgen/internal/schema"
+	"github.com/meoyawn/clickgen/internal/validator"
 )
 
 const version = "0.1.0"
@@ -47,11 +47,11 @@ func run(args []string) error {
 		printUsage(os.Stdout)
 		return nil
 	case "--version", "-v", "version":
-		fmt.Println("chty version", version)
+		fmt.Println("clickgen version", version)
 		return nil
 	case "gen":
 		if len(args) < 2 || args[1] != "go" {
-			return fmt.Errorf("expected: chty gen go")
+			return fmt.Errorf("expected: clickgen gen go")
 		}
 		return runGenGo(args[2:])
 	case "validate":
@@ -63,7 +63,7 @@ func run(args []string) error {
 }
 
 func runGenGo(args []string) error {
-	flags := flag.NewFlagSet("chty gen go", flag.ContinueOnError)
+	flags := flag.NewFlagSet("clickgen gen go", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var queryGlobs repeatedFlag
 	var goTypes repeatedFlag
@@ -134,7 +134,7 @@ func runGenGo(args []string) error {
 	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
 		return err
 	}
-	outputPath := filepath.Join(*outputDir, "chty_gen.go")
+	outputPath := filepath.Join(*outputDir, "clickgen_gen.go")
 	if err := os.WriteFile(outputPath, generated, 0o644); err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func runGenGo(args []string) error {
 }
 
 func runValidate(args []string) error {
-	flags := flag.NewFlagSet("chty validate", flag.ContinueOnError)
+	flags := flag.NewFlagSet("clickgen validate", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var generatedGlobs repeatedFlag
 	var goTypes repeatedFlag
@@ -228,6 +228,6 @@ func expandGlobs(globs []string) ([]string, error) {
 
 func printUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  chty gen go --query-glob 'queries/*.sql' --output-dir generated --package generated --db-url clickhouse://default@localhost:9000/default")
-	fmt.Fprintln(out, "  chty validate --generated-glob 'generated/*.go' --db-url clickhouse://default@localhost:9000/default")
+	fmt.Fprintln(out, "  clickgen gen go --query-glob 'queries/*.sql' --output-dir generated --package generated --db-url clickhouse://default@localhost:9000/default")
+	fmt.Fprintln(out, "  clickgen validate --generated-glob 'generated/*.go' --db-url clickhouse://default@localhost:9000/default")
 }

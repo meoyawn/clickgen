@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/meoyawn/chty-go/internal/parser"
-	"github.com/meoyawn/chty-go/internal/schema"
+	"github.com/meoyawn/clickgen/internal/parser"
+	"github.com/meoyawn/clickgen/internal/schema"
 )
 
 func TestGenerateGoldenOutput(t *testing.T) {
@@ -42,7 +42,7 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		").ScanStruct(&row); err != nil",
 		"SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}",
 		"ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getUserArgs(userID)))",
-		"// chty:query\tGetUser\tone\t",
+		"// clickgen:query\tGetUser\tone\t",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated output missing %q:\n%s", want, got)

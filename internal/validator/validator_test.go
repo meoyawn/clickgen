@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/meoyawn/chty-go/internal/parser"
-	"github.com/meoyawn/chty-go/internal/schema"
+	"github.com/meoyawn/clickgen/internal/parser"
+	"github.com/meoyawn/clickgen/internal/schema"
 )
 
 func TestValidateParameterDiffs(t *testing.T) {

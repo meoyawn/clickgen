@@ -1,4 +1,4 @@
-module github.com/meoyawn/chty-go
+module github.com/meoyawn/clickgen
 
 go 1.25.5
 
