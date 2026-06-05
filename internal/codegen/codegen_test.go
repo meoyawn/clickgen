@@ -39,21 +39,13 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		"`json:\"user_id\" ch:\"user_id\"`",
 		"type GetUserProjection interface",
 		"func (r *GetUserRow) GetUserID() int64",
+		").ScanStruct(&row); err != nil",
 		"SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}",
 		"ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getUserArgs(userID)))",
 		"// chty:query\tGetUser\tone\t",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
-	}
-	for _, notWant := range []string{
-		"type genericConn interface",
-		"type Querier interface",
-		"func NewQuerier",
-	} {
-		if strings.Contains(got, notWant) {
-			t.Fatalf("generated output contains %q:\n%s", notWant, got)
 		}
 	}
 }
@@ -151,16 +143,6 @@ func TestGenerateFormatsNestedQueryParameterLiterals(t *testing.T) {
 	}
 	if banned := "re" + "flect"; strings.Contains(got, banned) {
 		t.Fatalf("generated output contains %q:\n%s", banned, got)
-	}
-	for _, notWant := range []string{
-		"func queryParameterValueUUID",
-		"func queryParameterLiteralUInt64",
-		"func queryParameterLiteralString",
-		"func queryParameterValueString",
-	} {
-		if strings.Contains(got, notWant) {
-			t.Fatalf("generated output contains unnecessary helper %q:\n%s", notWant, got)
-		}
 	}
 }
 

@@ -248,8 +248,6 @@ func writeParamsStruct(b *strings.Builder, model queryModel) {
 		b.WriteString(param.GoType)
 		b.WriteString(" `json:\"")
 		b.WriteString(param.OriginalName)
-		b.WriteString("\" ch:\"")
-		b.WriteString(param.OriginalName)
 		b.WriteString("\"`\n")
 	}
 	b.WriteString("}\n\n")
@@ -296,20 +294,6 @@ func writeRow(b *strings.Builder, model queryModel) {
 		b.WriteString(field.FieldName)
 		b.WriteString(" }\n\n")
 	}
-
-	b.WriteString("func (r *")
-	b.WriteString(rowName)
-	b.WriteString(") scanTargets() []any {\n")
-	b.WriteString("\treturn []any{")
-	for idx, field := range model.Fields {
-		if idx > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString("&r.")
-		b.WriteString(field.FieldName)
-	}
-	b.WriteString("}\n")
-	b.WriteString("}\n\n")
 }
 
 func writeArgsHelper(b *strings.Builder, model queryModel, formatters *queryParameterFormatterRegistry) {
@@ -372,7 +356,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		b.WriteString("\n")
 		b.WriteString("\tif err := db.QueryRow(ctx, ")
 		b.WriteString(model.ConstName)
-		b.WriteString(").Scan(row.scanTargets()...); err != nil {\n")
+		b.WriteString(").ScanStruct(&row); err != nil {\n")
 		if len(model.Fields) == 1 {
 			b.WriteString("\t\tvar zero ")
 			b.WriteString(model.Fields[0].GoType)
@@ -404,7 +388,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		b.WriteString("\t\tvar row ")
 		b.WriteString(rowName)
 		b.WriteString("\n")
-		b.WriteString("\t\tif err := rows.Scan(row.scanTargets()...); err != nil {\n\t\t\treturn nil, err\n\t\t}\n")
+		b.WriteString("\t\tif err := rows.ScanStruct(&row); err != nil {\n\t\t\treturn nil, err\n\t\t}\n")
 		b.WriteString("\t\tout = append(out, row)\n")
 		b.WriteString("\t}\n")
 		b.WriteString("\tif err := rows.Err(); err != nil {\n\t\treturn nil, err\n\t}\n")

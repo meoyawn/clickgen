@@ -28,10 +28,6 @@ type GetNumberProjection interface {
 
 func (r *GetNumberRow) GetNumber() uint64 { return r.Number }
 
-func (r *GetNumberRow) scanTargets() []any {
-	return []any{&r.Number}
-}
-
 func getNumberArgs(number uint64) clickhouse.Parameters {
 	return clickhouse.Parameters{
 		"number": strconv.FormatUint(uint64(number), 10),
@@ -41,7 +37,7 @@ func getNumberArgs(number uint64) clickhouse.Parameters {
 func GetNumber(ctx context.Context, db DBQuerier, number uint64) (uint64, error) {
 	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getNumberArgs(number)))
 	var row GetNumberRow
-	if err := db.QueryRow(ctx, getNumberSQL).Scan(row.scanTargets()...); err != nil {
+	if err := db.QueryRow(ctx, getNumberSQL).ScanStruct(&row); err != nil {
 		var zero uint64
 		return zero, err
 	}
@@ -64,10 +60,6 @@ func (r *ListNumbersRow) GetNumber() uint64 { return r.Number }
 
 func (r *ListNumbersRow) GetDoubled() uint64 { return r.Doubled }
 
-func (r *ListNumbersRow) scanTargets() []any {
-	return []any{&r.Number, &r.Doubled}
-}
-
 func listNumbersArgs(maxNumber uint64) clickhouse.Parameters {
 	return clickhouse.Parameters{
 		"max_number": strconv.FormatUint(uint64(maxNumber), 10),
@@ -85,7 +77,7 @@ func ListNumbers(ctx context.Context, db DBQuerier, maxNumber uint64) ([]ListNum
 	var out []ListNumbersRow
 	for rows.Next() {
 		var row ListNumbersRow
-		if err := rows.Scan(row.scanTargets()...); err != nil {
+		if err := rows.ScanStruct(&row); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -108,10 +100,6 @@ type RangeNumbersProjection interface {
 
 func (r *RangeNumbersRow) GetNumber() uint64 { return r.Number }
 
-func (r *RangeNumbersRow) scanTargets() []any {
-	return []any{&r.Number}
-}
-
 func rangeNumbersArgs(minNumber uint64, maxNumber uint64) clickhouse.Parameters {
 	return clickhouse.Parameters{
 		"min_number": strconv.FormatUint(uint64(minNumber), 10),
@@ -130,7 +118,7 @@ func RangeNumbers(ctx context.Context, db DBQuerier, minNumber uint64, maxNumber
 	var out []RangeNumbersRow
 	for rows.Next() {
 		var row RangeNumbersRow
-		if err := rows.Scan(row.scanTargets()...); err != nil {
+		if err := rows.ScanStruct(&row); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -144,9 +132,9 @@ func RangeNumbers(ctx context.Context, db DBQuerier, minNumber uint64, maxNumber
 const insertUserSQL = "INSERT INTO chty_users (user_id, username, age) VALUES ({user_id:Int64}, {username:String}, {age:Int32})"
 
 type InsertUserParams struct {
-	UserID   int64  `json:"user_id" ch:"user_id"`
-	Username string `json:"username" ch:"username"`
-	Age      int32  `json:"age" ch:"age"`
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+	Age      int32  `json:"age"`
 }
 
 func (p InsertUserParams) args() clickhouse.Parameters {
