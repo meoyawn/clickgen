@@ -115,7 +115,11 @@ type InsertUserParams struct {
 }
 
 func (p InsertUserParams) args() clickhouse.Parameters {
-	return clickhouse.Parameters{"user_id": strconv.FormatInt(int64(p.UserID), 10), "username": p.Username, "age": strconv.FormatInt(int64(p.Age), 10)}
+	return clickhouse.Parameters{
+		"user_id":  strconv.FormatInt(int64(p.UserID), 10),
+		"username": p.Username,
+		"age":      strconv.FormatInt(int64(p.Age), 10),
+	}
 }
 
 func (q *DBQuerier) InsertUser(ctx context.Context, params InsertUserParams) error {
