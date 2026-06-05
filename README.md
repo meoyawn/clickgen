@@ -30,3 +30,8 @@ go get -tool github.com/meoyawn/chty-go/cmd/chty
 ```
 
 Generation uses `github.com/ClickHouse/clickhouse-go/v2` native connections. Query parameters keep ClickHouse `{name:Type}` placeholders and are passed with `clickhouse.Named`.
+
+## Related
+
+- This is a source port of https://pypi.org/project/chty
+- For Postgres SQL -> Go generator use https://github.com/meoyawn/pggen
