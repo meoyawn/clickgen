@@ -2,6 +2,8 @@
 
 ClickHouse SQL to Go code generator
 
+Problem: keep ClickHouse query params and result projections in sync with Go structs, including field names and types.
+
 ```sql
 -- name: GetUser :one
 SELECT user_id, username
