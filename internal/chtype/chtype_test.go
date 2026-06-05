@@ -3,6 +3,7 @@ package chtype
 import "testing"
 
 func TestMapPreservesIntegerWidths(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"Int8":    "int8",
 		"Int16":   "int16",
@@ -23,6 +24,7 @@ func TestMapPreservesIntegerWidths(t *testing.T) {
 }
 
 func TestMapComplexTypes(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"Date":                                 "time.Time",
 		"DateTime64(3)":                        "time.Time",
@@ -46,6 +48,7 @@ func TestMapComplexTypes(t *testing.T) {
 }
 
 func TestMapOverrides(t *testing.T) {
+	t.Parallel()
 	overrides := Overrides{}
 	overrides.Add("JSON", "map[string]any")
 	if got := Map("JSON", overrides).Name; got != "map[string]any" {

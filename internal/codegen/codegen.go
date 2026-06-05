@@ -62,23 +62,28 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 		"context": {},
 		"github.com/ClickHouse/clickhouse-go/v2/lib/driver": {},
 	}
-	needsNamed := false
+	needsParams := false
 
 	for _, spec := range specs {
-		model, modelImports, named, err := buildModel(spec, opts.Overrides)
+		model, modelImports, usesParams, err := buildModel(spec, opts.Overrides)
 		if err != nil {
 			return nil, err
 		}
 		for path := range modelImports {
 			imports[path] = struct{}{}
 		}
-		if named {
-			needsNamed = true
+		if usesParams {
+			needsParams = true
 		}
 		models = append(models, model)
 	}
-	if needsNamed {
+	if needsParams {
+		imports["fmt"] = struct{}{}
 		imports["github.com/ClickHouse/clickhouse-go/v2"] = struct{}{}
+		imports["reflect"] = struct{}{}
+		imports["sort"] = struct{}{}
+		imports["strings"] = struct{}{}
+		imports["time"] = struct{}{}
 	}
 
 	var b strings.Builder
@@ -88,6 +93,9 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 	b.WriteString("\n\n")
 	writeImports(&b, imports)
 	writeCommon(&b)
+	if needsParams {
+		writeQueryParameterHelpers(&b)
+	}
 	writeQuerierInterface(&b, models)
 	for _, model := range models {
 		writeQuery(&b, model)
@@ -116,13 +124,14 @@ func buildModel(spec QuerySpec, overrides chtype.Overrides) (queryModel, map[str
 		for path := range goType.Imports {
 			imports[path] = struct{}{}
 		}
-		model.Params = append(model.Params, paramModel{
+		param := paramModel{
 			OriginalName: param.Name,
 			FieldName:    exportedIdentifier(param.Name),
 			LocalName:    safeLocalName(unexportedIdentifier(param.Name)),
 			CHType:       param.ClickHouseType,
 			GoType:       goType.Name,
-		})
+		}
+		model.Params = append(model.Params, param)
 	}
 
 	if query.Cmd != parser.CommandExec {
@@ -180,6 +189,120 @@ type DBQuerier struct {
 
 func NewQuerier(conn genericConn) *DBQuerier {
 	return &DBQuerier{conn: conn}
+}
+
+`)
+}
+
+func writeQueryParameterHelpers(b *strings.Builder) {
+	b.WriteString(`func queryParameterValue(value any) string {
+	return queryParameterValueString(value, false)
+}
+
+func queryParameterLiteral(value any) string {
+	return queryParameterValueString(value, true)
+}
+
+func queryParameterValueString(value any, literal bool) string {
+	value = dereferenceQueryParameterValue(value)
+	if value == nil {
+		return "NULL"
+	}
+
+	switch typed := value.(type) {
+	case time.Time:
+		formatted := typed.Format("2006-01-02 15:04:05.999999999")
+		if literal {
+			return quoteQueryParameterString(formatted)
+		}
+		return formatted
+	case time.Duration:
+		formatted := queryParameterDuration(typed)
+		if literal {
+			return quoteQueryParameterString(formatted)
+		}
+		return formatted
+	case string:
+		if literal {
+			return quoteQueryParameterString(typed)
+		}
+		return typed
+	}
+
+	reflected := reflect.ValueOf(value)
+	if isUUIDQueryParameter(reflected) {
+		formatted := fmt.Sprint(value)
+		if literal {
+			return quoteQueryParameterString(formatted)
+		}
+		return formatted
+	}
+
+	switch reflected.Kind() {
+	case reflect.Array, reflect.Slice:
+		parts := make([]string, 0, reflected.Len())
+		for idx := range reflected.Len() {
+			parts = append(parts, queryParameterLiteral(reflected.Index(idx).Interface()))
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case reflect.Map:
+		return queryParameterMap(reflected)
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
+func isUUIDQueryParameter(value reflect.Value) bool {
+	valueType := value.Type()
+	return valueType.PkgPath() == "github.com/google/uuid" && valueType.Name() == "UUID"
+}
+
+func queryParameterMap(value reflect.Value) string {
+	keys := value.MapKeys()
+	sort.Slice(keys, func(left, right int) bool {
+		return queryParameterLiteral(keys[left].Interface()) < queryParameterLiteral(keys[right].Interface())
+	})
+
+	parts := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		parts = append(parts, queryParameterLiteral(key.Interface()))
+		parts = append(parts, queryParameterLiteral(value.MapIndex(key).Interface()))
+	}
+	return "map(" + strings.Join(parts, ",") + ")"
+}
+
+func dereferenceQueryParameterValue(value any) any {
+	reflected := reflect.ValueOf(value)
+	for reflected.IsValid() && reflected.Kind() == reflect.Ptr {
+		if reflected.IsNil() {
+			return nil
+		}
+		reflected = reflected.Elem()
+	}
+	if !reflected.IsValid() {
+		return nil
+	}
+	return reflected.Interface()
+}
+
+func queryParameterDuration(value time.Duration) string {
+	sign := ""
+	if value < 0 {
+		sign = "-"
+		value = -value
+	}
+	totalSeconds := int64(value / time.Second)
+	nanos := int64(value % time.Second)
+	if nanos == 0 {
+		return fmt.Sprintf("%s%02d:%02d:%02d", sign, totalSeconds/3600, totalSeconds/60%60, totalSeconds%60)
+	}
+	return fmt.Sprintf("%s%02d:%02d:%02d.%09d", sign, totalSeconds/3600, totalSeconds/60%60, totalSeconds%60, nanos)
+}
+
+func quoteQueryParameterString(value string) string {
+	escaped := strings.ReplaceAll(value, ` + strconv.Quote(`\`) + `, ` + strconv.Quote(`\\`) + `)
+	escaped = strings.ReplaceAll(escaped, "'", ` + strconv.Quote(`\'`) + `)
+	return "'" + escaped + "'"
 }
 
 `)
@@ -327,15 +450,14 @@ func writeArgsHelper(b *strings.Builder, model queryModel) {
 	if len(model.Params) >= 3 {
 		b.WriteString("func (p ")
 		b.WriteString(model.MethodName)
-		b.WriteString("Params) args() []any {\n")
-		b.WriteString("\treturn []any{")
+		b.WriteString("Params) args() clickhouse.Parameters {\n")
+		b.WriteString("\treturn clickhouse.Parameters{")
 		for idx, param := range model.Params {
 			if idx > 0 {
 				b.WriteString(", ")
 			}
-			b.WriteString("clickhouse.Named(")
 			b.WriteString(strconv.Quote(param.OriginalName))
-			b.WriteString(", p.")
+			b.WriteString(": queryParameterValue(p.")
 			b.WriteString(param.FieldName)
 			b.WriteString(")")
 		}
@@ -355,15 +477,14 @@ func writeArgsHelper(b *strings.Builder, model queryModel) {
 		b.WriteString(" ")
 		b.WriteString(param.GoType)
 	}
-	b.WriteString(") []any {\n")
-	b.WriteString("\treturn []any{")
+	b.WriteString(") clickhouse.Parameters {\n")
+	b.WriteString("\treturn clickhouse.Parameters{")
 	for idx, param := range model.Params {
 		if idx > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("clickhouse.Named(")
 		b.WriteString(strconv.Quote(param.OriginalName))
-		b.WriteString(", ")
+		b.WriteString(": queryParameterValue(")
 		b.WriteString(param.LocalName)
 		b.WriteString(")")
 	}
@@ -381,7 +502,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 	case parser.CommandExec:
 		b.WriteString("\treturn q.conn.Exec(ctx, ")
 		b.WriteString(model.ConstName)
-		b.WriteString(", args...)\n")
+		b.WriteString(")\n")
 	case parser.CommandOne:
 		rowName := model.MethodName + "Row"
 		b.WriteString("\tvar row ")
@@ -389,7 +510,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		b.WriteString("\n")
 		b.WriteString("\tif err := q.conn.QueryRow(ctx, ")
 		b.WriteString(model.ConstName)
-		b.WriteString(", args...).Scan(row.scanTargets()...); err != nil {\n")
+		b.WriteString(").Scan(row.scanTargets()...); err != nil {\n")
 		if len(model.Fields) == 1 {
 			b.WriteString("\t\tvar zero ")
 			b.WriteString(model.Fields[0].GoType)
@@ -411,7 +532,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		rowName := model.MethodName + "Row"
 		b.WriteString("\trows, err := q.conn.Query(ctx, ")
 		b.WriteString(model.ConstName)
-		b.WriteString(", args...)\n")
+		b.WriteString(")\n")
 		b.WriteString("\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 		b.WriteString("\tdefer rows.Close()\n\n")
 		b.WriteString("\tvar out []")
@@ -433,11 +554,11 @@ func writeMethod(b *strings.Builder, model queryModel) {
 func writeArgsAssignment(b *strings.Builder, model queryModel) {
 	switch {
 	case len(model.Params) == 0:
-		b.WriteString("\targs := []any(nil)\n")
+		return
 	case len(model.Params) >= 3:
-		b.WriteString("\targs := params.args()\n")
+		b.WriteString("\tctx = clickhouse.Context(ctx, clickhouse.WithParameters(params.args()))\n")
 	default:
-		b.WriteString("\targs := ")
+		b.WriteString("\tctx = clickhouse.Context(ctx, clickhouse.WithParameters(")
 		b.WriteString(unexportedIdentifier(model.OriginalName))
 		b.WriteString("Args(")
 		for idx, param := range model.Params {
@@ -446,7 +567,7 @@ func writeArgsAssignment(b *strings.Builder, model queryModel) {
 			}
 			b.WriteString(param.LocalName)
 		}
-		b.WriteString(")\n")
+		b.WriteString(")))\n")
 	}
 }
 

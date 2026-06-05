@@ -1,0 +1,31 @@
+version: 3
+
+env:
+  GOCACHE: "{{.TASKFILE_DIR}}/.cache/go-build"
+
+tasks:
+  test:
+    run: once
+    cmd: go test ./...
+    sources:
+      - ./**/*
+
+  lint:
+    run: once
+    env:
+      CGO_ENABLED: 0
+      GOLANGCI_LINT_CACHE: "{{.TASKFILE_DIR}}/.cache/golangci-lint"
+    cmds:
+      - gofmt -w .
+      - go tool golangci-lint run ./...
+    sources:
+      - ./**/*.go
+      - .golangci.yaml
+      - go.mod
+      - go.sum
+
+  check:
+    run: once
+    deps:
+      - lint
+      - test

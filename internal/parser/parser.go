@@ -132,6 +132,10 @@ func ExtractParameters(query string) []Parameter {
 }
 
 func ExtractParametersStrict(query string) ([]Parameter, error) {
+	if placeholder, ok := findLegacyBindPlaceholder(query); ok {
+		return nil, fmt.Errorf("legacy bind placeholder %q is not supported; use {name:Type}", placeholder)
+	}
+
 	matches := parameterRE.FindAllStringSubmatch(query, -1)
 	params := make([]Parameter, 0, len(matches))
 	seen := map[string]string{}
@@ -150,4 +154,85 @@ func ExtractParametersStrict(query string) ([]Parameter, error) {
 	}
 
 	return params, nil
+}
+
+func findLegacyBindPlaceholder(query string) (string, bool) {
+	for idx := 0; idx < len(query); idx++ {
+		switch query[idx] {
+		case '\'', '"', '`':
+			idx = skipQuoted(query, idx)
+		case '-':
+			if idx+1 < len(query) && query[idx+1] == '-' {
+				idx = skipLineComment(query, idx+2)
+			}
+		case '/':
+			if idx+1 < len(query) && query[idx+1] == '*' {
+				idx = skipBlockComment(query, idx+2)
+			}
+		case '@':
+			if idx+1 < len(query) && isBindNameChar(query[idx+1]) {
+				end := idx + 2
+				for end < len(query) && isBindNameChar(query[end]) {
+					end++
+				}
+				return query[idx:end], true
+			}
+		case '?':
+			return "?", true
+		case '$':
+			if idx+1 < len(query) && query[idx+1] >= '0' && query[idx+1] <= '9' {
+				end := idx + 2
+				for end < len(query) && query[end] >= '0' && query[end] <= '9' {
+					end++
+				}
+				return query[idx:end], true
+			}
+		}
+	}
+
+	return "", false
+}
+
+func skipQuoted(query string, idx int) int {
+	quote := query[idx]
+	for idx++; idx < len(query); idx++ {
+		if query[idx] == '\\' {
+			idx++
+			continue
+		}
+		if query[idx] != quote {
+			continue
+		}
+		if quote == '\'' && idx+1 < len(query) && query[idx+1] == '\'' {
+			idx++
+			continue
+		}
+		return idx
+	}
+	return len(query) - 1
+}
+
+func skipLineComment(query string, idx int) int {
+	for ; idx < len(query); idx++ {
+		if query[idx] == '\n' {
+			return idx
+		}
+	}
+	return len(query) - 1
+}
+
+func skipBlockComment(query string, idx int) int {
+	for ; idx+1 < len(query); idx++ {
+		if query[idx] == '*' && query[idx+1] == '/' {
+			return idx + 1
+		}
+	}
+	return len(query) - 1
+}
+
+func isBindNameChar(value byte) bool {
+	return (value >= 'A' && value <= 'Z') ||
+		(value >= 'a' && value <= 'z') ||
+		(value >= '0' && value <= '9') ||
+		value == '_'
 }

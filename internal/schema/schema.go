@@ -105,7 +105,7 @@ func Describe(ctx context.Context, conn driver.Conn, query string) ([]Column, er
 	var columns []Column
 	for rows.Next() {
 		names := rows.Columns()
-		values := make([]any, len(names))
+		values := make([]string, len(names))
 		dest := make([]any, len(names))
 		for idx := range values {
 			dest[idx] = &values[idx]
@@ -117,8 +117,8 @@ func Describe(ctx context.Context, conn driver.Conn, query string) ([]Column, er
 			return nil, fmt.Errorf("DESCRIBE returned %d columns, expected at least 2", len(values))
 		}
 		columns = append(columns, Column{
-			Name:           fmt.Sprint(values[0]),
-			ClickHouseType: fmt.Sprint(values[1]),
+			Name:           values[0],
+			ClickHouseType: values[1],
 		})
 	}
 	if err := rows.Err(); err != nil {

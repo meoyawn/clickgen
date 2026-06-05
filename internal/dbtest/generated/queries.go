@@ -4,6 +4,11 @@ package generated
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -23,9 +28,119 @@ func NewQuerier(conn genericConn) *DBQuerier {
 	return &DBQuerier{conn: conn}
 }
 
+func queryParameterValue(value any) string {
+	return queryParameterValueString(value, false)
+}
+
+func queryParameterLiteral(value any) string {
+	return queryParameterValueString(value, true)
+}
+
+func queryParameterValueString(value any, literal bool) string {
+	value = dereferenceQueryParameterValue(value)
+	if value == nil {
+		return "NULL"
+	}
+
+	switch typed := value.(type) {
+	case time.Time:
+		formatted := typed.Format("2006-01-02 15:04:05.999999999")
+		if literal {
+			return quoteQueryParameterString(formatted)
+		}
+		return formatted
+	case time.Duration:
+		formatted := queryParameterDuration(typed)
+		if literal {
+			return quoteQueryParameterString(formatted)
+		}
+		return formatted
+	case string:
+		if literal {
+			return quoteQueryParameterString(typed)
+		}
+		return typed
+	}
+
+	reflected := reflect.ValueOf(value)
+	if isUUIDQueryParameter(reflected) {
+		formatted := fmt.Sprint(value)
+		if literal {
+			return quoteQueryParameterString(formatted)
+		}
+		return formatted
+	}
+
+	switch reflected.Kind() {
+	case reflect.Array, reflect.Slice:
+		parts := make([]string, 0, reflected.Len())
+		for idx := range reflected.Len() {
+			parts = append(parts, queryParameterLiteral(reflected.Index(idx).Interface()))
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case reflect.Map:
+		return queryParameterMap(reflected)
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
+func isUUIDQueryParameter(value reflect.Value) bool {
+	valueType := value.Type()
+	return valueType.PkgPath() == "github.com/google/uuid" && valueType.Name() == "UUID"
+}
+
+func queryParameterMap(value reflect.Value) string {
+	keys := value.MapKeys()
+	sort.Slice(keys, func(left, right int) bool {
+		return queryParameterLiteral(keys[left].Interface()) < queryParameterLiteral(keys[right].Interface())
+	})
+
+	parts := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		parts = append(parts, queryParameterLiteral(key.Interface()))
+		parts = append(parts, queryParameterLiteral(value.MapIndex(key).Interface()))
+	}
+	return "map(" + strings.Join(parts, ",") + ")"
+}
+
+func dereferenceQueryParameterValue(value any) any {
+	reflected := reflect.ValueOf(value)
+	for reflected.IsValid() && reflected.Kind() == reflect.Ptr {
+		if reflected.IsNil() {
+			return nil
+		}
+		reflected = reflected.Elem()
+	}
+	if !reflected.IsValid() {
+		return nil
+	}
+	return reflected.Interface()
+}
+
+func queryParameterDuration(value time.Duration) string {
+	sign := ""
+	if value < 0 {
+		sign = "-"
+		value = -value
+	}
+	totalSeconds := int64(value / time.Second)
+	nanos := int64(value % time.Second)
+	if nanos == 0 {
+		return fmt.Sprintf("%s%02d:%02d:%02d", sign, totalSeconds/3600, totalSeconds/60%60, totalSeconds%60)
+	}
+	return fmt.Sprintf("%s%02d:%02d:%02d.%09d", sign, totalSeconds/3600, totalSeconds/60%60, totalSeconds%60, nanos)
+}
+
+func quoteQueryParameterString(value string) string {
+	escaped := strings.ReplaceAll(value, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "'", "\\'")
+	return "'" + escaped + "'"
+}
+
 type Querier interface {
 	GetNumber(ctx context.Context, number uint64) (uint64, error)
-	ListNumbers(ctx context.Context, limit uint64) ([]ListNumbersRow, error)
+	ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNumbersRow, error)
 	InsertUser(ctx context.Context, params InsertUserParams) error
 }
 
@@ -45,21 +160,21 @@ func (r *GetNumberRow) scanTargets() []any {
 	return []any{&r.Number}
 }
 
-func getNumberArgs(number uint64) []any {
-	return []any{clickhouse.Named("number", number)}
+func getNumberArgs(number uint64) clickhouse.Parameters {
+	return clickhouse.Parameters{"number": queryParameterValue(number)}
 }
 
 func (q *DBQuerier) GetNumber(ctx context.Context, number uint64) (uint64, error) {
-	args := getNumberArgs(number)
+	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getNumberArgs(number)))
 	var row GetNumberRow
-	if err := q.conn.QueryRow(ctx, getNumberSQL, args...).Scan(row.scanTargets()...); err != nil {
+	if err := q.conn.QueryRow(ctx, getNumberSQL).Scan(row.scanTargets()...); err != nil {
 		var zero uint64
 		return zero, err
 	}
 	return row.Number, nil
 }
 
-const listNumbersSQL = "SELECT number, number * 2 AS doubled FROM system.numbers WHERE number < {limit:UInt64} ORDER BY number"
+const listNumbersSQL = "SELECT number, number * 2 AS doubled FROM system.numbers WHERE number < {max_number:UInt64} ORDER BY number"
 
 type ListNumbersRow struct {
 	Number  uint64 `json:"number" ch:"number"`
@@ -79,13 +194,13 @@ func (r *ListNumbersRow) scanTargets() []any {
 	return []any{&r.Number, &r.Doubled}
 }
 
-func listNumbersArgs(limit uint64) []any {
-	return []any{clickhouse.Named("limit", limit)}
+func listNumbersArgs(maxNumber uint64) clickhouse.Parameters {
+	return clickhouse.Parameters{"max_number": queryParameterValue(maxNumber)}
 }
 
-func (q *DBQuerier) ListNumbers(ctx context.Context, limit uint64) ([]ListNumbersRow, error) {
-	args := listNumbersArgs(limit)
-	rows, err := q.conn.Query(ctx, listNumbersSQL, args...)
+func (q *DBQuerier) ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNumbersRow, error) {
+	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(listNumbersArgs(maxNumber)))
+	rows, err := q.conn.Query(ctx, listNumbersSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -113,11 +228,11 @@ type InsertUserParams struct {
 	Age      int32  `json:"age" ch:"age"`
 }
 
-func (p InsertUserParams) args() []any {
-	return []any{clickhouse.Named("user_id", p.UserID), clickhouse.Named("username", p.Username), clickhouse.Named("age", p.Age)}
+func (p InsertUserParams) args() clickhouse.Parameters {
+	return clickhouse.Parameters{"user_id": queryParameterValue(p.UserID), "username": queryParameterValue(p.Username), "age": queryParameterValue(p.Age)}
 }
 
 func (q *DBQuerier) InsertUser(ctx context.Context, params InsertUserParams) error {
-	args := params.args()
-	return q.conn.Exec(ctx, insertUserSQL, args...)
+	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(params.args()))
+	return q.conn.Exec(ctx, insertUserSQL)
 }

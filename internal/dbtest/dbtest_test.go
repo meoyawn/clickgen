@@ -15,7 +15,20 @@ import (
 	"github.com/meoyawn/chty-go/internal/parser"
 	"github.com/meoyawn/chty-go/internal/schema"
 	"github.com/meoyawn/chty-go/internal/validator"
+	mobyclient "github.com/moby/moby/client"
 	"github.com/ory/dockertest/v4"
+)
+
+const (
+	clickHouseImage       = "clickhouse/clickhouse-server"
+	clickHouseTag         = "26.3-alpine"
+	clickHouseUser        = "admin"
+	clickHousePassword    = "admin"
+	dbtestPackageTimeout  = 10 * time.Second
+	dbtestCleanupTimeout  = 5 * time.Second
+	dbtestContainerName   = "chty-go-dbtest-clickhouse"
+	dbtestContainerLabel  = "github.com/meoyawn/chty-go.dbtest"
+	dbtestContainerLabelV = "true"
 )
 
 var (
@@ -25,59 +38,134 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	ctx := context.Background()
-	pool, err := dockertest.NewPool(ctx, "", dockertest.WithMaxWait(90*time.Second))
+	os.Exit(testMain(m))
+}
+
+func testMain(m *testing.M) int {
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestPackageTimeout)
+	defer cancel()
+	pool, err := dockertest.NewPool(ctx, "", dockertest.WithMaxWait(dbtestPackageTimeout))
 	if err != nil {
 		dbUnavailable = err.Error()
-		os.Exit(m.Run())
+		return m.Run()
+	}
+	defer closePool(pool)
+
+	if err := removeDBTestContainers(ctx, pool); err != nil {
+		dbUnavailable = err.Error()
+		return m.Run()
 	}
 
-	resource, err := pool.Run(ctx, "clickhouse/clickhouse-server",
-		dockertest.WithTag("26.3-alpine"),
+	resource, err := pool.Run(ctx, clickHouseImage,
+		dockertest.WithTag(clickHouseTag),
+		dockertest.WithName(dbtestContainerName),
+		dockertest.WithLabels(map[string]string{
+			dbtestContainerLabel: dbtestContainerLabelV,
+		}),
+		dockertest.WithEnv([]string{
+			"CLICKHOUSE_USER=" + clickHouseUser,
+			"CLICKHOUSE_PASSWORD=" + clickHousePassword,
+		}),
 		dockertest.WithoutReuse(),
 	)
 	if err != nil {
 		dbUnavailable = err.Error()
-		_ = pool.Close(ctx)
-		os.Exit(m.Run())
+		return m.Run()
 	}
+	defer closeResource(resource)
 
-	hostPort := resource.GetPort("9000/tcp")
-	testDBURL = fmt.Sprintf("clickhouse://default@localhost:%s/default", hostPort)
-	if err := pool.Retry(ctx, 90*time.Second, func() error {
+	hostPort := resource.GetHostPort("9000/tcp")
+	testDBURL = fmt.Sprintf("clickhouse://%s:%s@%s/default", clickHouseUser, clickHousePassword, hostPort)
+	if err := pool.Retry(ctx, dbtestPackageTimeout, func() error {
 		conn, err := schema.Open(testDBURL)
 		if err != nil {
 			return err
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
 		defer cancel()
 		if err := conn.Ping(ctx); err != nil {
+			_ = conn.Close()
 			return err
 		}
 		testConn = conn
 		return nil
 	}); err != nil {
-		dbUnavailable = err.Error()
-		_ = pool.Close(ctx)
-		os.Exit(m.Run())
+		dbUnavailable = describeResourceFailure(resource, err)
+		return m.Run()
 	}
 
 	if err := setupFixture(); err != nil {
 		dbUnavailable = err.Error()
-		_ = pool.Close(ctx)
-		os.Exit(m.Run())
+		return m.Run()
 	}
 
 	code := m.Run()
 	if testConn != nil {
 		_ = testConn.Close()
 	}
+	return code
+}
+
+func closePool(pool dockertest.ClosablePool) {
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
+	defer cancel()
 	_ = pool.Close(ctx)
-	os.Exit(code)
+}
+
+func closeResource(resource dockertest.ClosableResource) {
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
+	defer cancel()
+	_ = resource.Close(ctx)
+}
+
+func describeResourceFailure(resource dockertest.Resource, err error) string {
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
+	defer cancel()
+	stdout, stderr, logsErr := resource.Logs(ctx)
+	if logsErr != nil {
+		return err.Error()
+	}
+
+	parts := []string{err.Error()}
+	if stdout = strings.TrimSpace(stdout); stdout != "" {
+		parts = append(parts, "ClickHouse stdout:\n"+tail(stdout, 4000))
+	}
+	if stderr = strings.TrimSpace(stderr); stderr != "" {
+		parts = append(parts, "ClickHouse stderr:\n"+tail(stderr, 4000))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func tail(value string, maxLen int) string {
+	if len(value) <= maxLen {
+		return value
+	}
+	return value[len(value)-maxLen:]
+}
+
+func removeDBTestContainers(ctx context.Context, pool dockertest.Pool) error {
+	containers, err := pool.Client().ContainerList(ctx, mobyclient.ContainerListOptions{
+		All: true,
+		Filters: make(mobyclient.Filters).
+			Add("name", dbtestContainerName).
+			Add("label", dbtestContainerLabel+"="+dbtestContainerLabelV),
+	})
+	if err != nil {
+		return fmt.Errorf("list stale dbtest containers: %w", err)
+	}
+	for _, container := range containers.Items {
+		if _, err := pool.Client().ContainerRemove(ctx, container.ID, mobyclient.ContainerRemoveOptions{
+			Force:         true,
+			RemoveVolumes: true,
+		}); err != nil {
+			return fmt.Errorf("remove stale dbtest container %s: %w", container.ID, err)
+		}
+	}
+	return nil
 }
 
 func setupFixture() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
 	defer cancel()
 	statements := []string{
 		"DROP TABLE IF EXISTS chty_users",
@@ -96,12 +184,21 @@ func requireDB(t *testing.T) driver.Conn {
 	if dbUnavailable != "" {
 		t.Skipf("ClickHouse unavailable: %s", dbUnavailable)
 	}
-	return testConn
+	conn, err := schema.Open(testDBURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+	return conn
 }
 
 func TestDescribe(t *testing.T) {
+	t.Parallel()
 	conn := requireDB(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
+	defer cancel()
 	columns, err := schema.Describe(ctx, conn, "SELECT number, number * 2 AS doubled FROM system.numbers LIMIT 1")
 	if err != nil {
 		t.Fatal(err)
@@ -118,8 +215,10 @@ func TestDescribe(t *testing.T) {
 }
 
 func TestGeneratedExecution(t *testing.T) {
+	t.Parallel()
 	conn := requireDB(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
+	defer cancel()
 	queries := fixture.NewQuerier(conn)
 
 	number, err := queries.GetNumber(ctx, 7)
@@ -154,7 +253,10 @@ func TestGeneratedExecution(t *testing.T) {
 }
 
 func TestSchemaDriftValidation(t *testing.T) {
+	t.Parallel()
 	requireDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
+	defer cancel()
 	generated, err := codegen.Generate(codegen.Options{PackageName: "generated"}, []codegen.QuerySpec{
 		{
 			Query: parser.Query{
@@ -173,7 +275,7 @@ func TestSchemaDriftValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	valid, errors := validator.ValidateFile(context.Background(), path, testDBURL, nil)
+	valid, errors := validator.ValidateFile(ctx, path, testDBURL, nil)
 	if valid {
 		t.Fatal("ValidateFile returned valid, want drift error")
 	}

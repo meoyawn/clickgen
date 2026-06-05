@@ -9,6 +9,7 @@ import (
 )
 
 func TestValidateParameterDiffs(t *testing.T) {
+	t.Parallel()
 	query := GeneratedQuery{
 		Name: "Search",
 		Kind: parser.CommandMany,
@@ -32,6 +33,7 @@ func TestValidateParameterDiffs(t *testing.T) {
 }
 
 func TestValidateResultSchemaDiffs(t *testing.T) {
+	t.Parallel()
 	query := GeneratedQuery{
 		Name: "Search",
 		Kind: parser.CommandMany,

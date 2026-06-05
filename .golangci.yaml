@@ -1,0 +1,77 @@
+version: 2
+
+run:
+  timeout: 5m
+  tests: true
+  relative-path-mode: gomod
+
+linters:
+  default: all
+  disable:
+    - arangolint
+    - clickhouselint
+    - depguard
+    - err113
+    - exhaustruct
+    - forbidigo
+    - funlen
+    - ginkgolinter
+    - gocognit
+    - gochecknoglobals
+    - goconst
+    - gocyclo
+    - goheader
+    - gosec
+    - cyclop
+    - gomodguard
+    - gomodguard_v2
+    - ireturn
+    - loggercheck
+    - lll
+    - mnd
+    - nestif
+    - nilnil
+    - nlreturn
+    - noinlineerr
+    - perfsprint
+    - protogetter
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - tagliatelle
+    - testifylint
+    - testpackage
+    - unqueryvet
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+    - zerologlint
+  settings:
+    cyclop:
+      max-complexity: 12
+      package-average: 8
+  exclusions:
+    generated: lax
+    warn-unused: true
+    paths:
+      - internal/dbtest/generated/.*
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gci
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: strict
+    warn-unused: true
