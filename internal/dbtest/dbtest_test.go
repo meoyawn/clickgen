@@ -240,6 +240,17 @@ func TestGeneratedExecution(t *testing.T) {
 		t.Fatalf("rows[2] = %#v", rows[2])
 	}
 
+	rangeRows, err := queries.RangeNumbers(ctx, 2, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rangeRows) != 3 {
+		t.Fatalf("len(rangeRows) = %d, want 3", len(rangeRows))
+	}
+	if rangeRows[0].Number != 2 || rangeRows[2].Number != 4 {
+		t.Fatalf("rangeRows = %#v", rangeRows)
+	}
+
 	if err := queries.InsertUser(ctx, fixture.InsertUserParams{UserID: 1, Username: "ada", Age: 37}); err != nil {
 		t.Fatal(err)
 	}

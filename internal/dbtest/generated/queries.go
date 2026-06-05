@@ -27,6 +27,7 @@ func NewQuerier(conn genericConn) *DBQuerier {
 type Querier interface {
 	GetNumber(ctx context.Context, number uint64) (uint64, error)
 	ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNumbersRow, error)
+	RangeNumbers(ctx context.Context, minNumber uint64, maxNumber uint64) ([]RangeNumbersRow, error)
 	InsertUser(ctx context.Context, params InsertUserParams) error
 }
 
@@ -47,7 +48,9 @@ func (r *GetNumberRow) scanTargets() []any {
 }
 
 func getNumberArgs(number uint64) clickhouse.Parameters {
-	return clickhouse.Parameters{"number": strconv.FormatUint(uint64(number), 10)}
+	return clickhouse.Parameters{
+		"number": strconv.FormatUint(uint64(number), 10),
+	}
 }
 
 func (q *DBQuerier) GetNumber(ctx context.Context, number uint64) (uint64, error) {
@@ -81,7 +84,9 @@ func (r *ListNumbersRow) scanTargets() []any {
 }
 
 func listNumbersArgs(maxNumber uint64) clickhouse.Parameters {
-	return clickhouse.Parameters{"max_number": strconv.FormatUint(uint64(maxNumber), 10)}
+	return clickhouse.Parameters{
+		"max_number": strconv.FormatUint(uint64(maxNumber), 10),
+	}
 }
 
 func (q *DBQuerier) ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNumbersRow, error) {
@@ -95,6 +100,51 @@ func (q *DBQuerier) ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNu
 	var out []ListNumbersRow
 	for rows.Next() {
 		var row ListNumbersRow
+		if err := rows.Scan(row.scanTargets()...); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+const rangeNumbersSQL = "SELECT number FROM system.numbers WHERE number >= {min_number:UInt64} AND number < {max_number:UInt64} ORDER BY number"
+
+type RangeNumbersRow struct {
+	Number uint64 `json:"number" ch:"number"`
+}
+
+type RangeNumbersProjection interface {
+	GetNumber() uint64
+}
+
+func (r *RangeNumbersRow) GetNumber() uint64 { return r.Number }
+
+func (r *RangeNumbersRow) scanTargets() []any {
+	return []any{&r.Number}
+}
+
+func rangeNumbersArgs(minNumber uint64, maxNumber uint64) clickhouse.Parameters {
+	return clickhouse.Parameters{
+		"min_number": strconv.FormatUint(uint64(minNumber), 10),
+		"max_number": strconv.FormatUint(uint64(maxNumber), 10),
+	}
+}
+
+func (q *DBQuerier) RangeNumbers(ctx context.Context, minNumber uint64, maxNumber uint64) ([]RangeNumbersRow, error) {
+	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(rangeNumbersArgs(minNumber, maxNumber)))
+	rows, err := q.conn.Query(ctx, rangeNumbersSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RangeNumbersRow
+	for rows.Next() {
+		var row RangeNumbersRow
 		if err := rows.Scan(row.scanTargets()...); err != nil {
 			return nil, err
 		}
