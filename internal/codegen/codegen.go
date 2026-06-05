@@ -336,16 +336,15 @@ func writeArgsHelper(b *strings.Builder, model queryModel, formatters *queryPara
 		b.WriteString("func (p ")
 		b.WriteString(model.MethodName)
 		b.WriteString("Params) args() clickhouse.Parameters {\n")
-		b.WriteString("\treturn clickhouse.Parameters{")
-		for idx, param := range model.Params {
-			if idx > 0 {
-				b.WriteString(", ")
-			}
+		b.WriteString("\treturn clickhouse.Parameters{\n")
+		for _, param := range model.Params {
+			b.WriteString("\t\t")
 			b.WriteString(strconv.Quote(param.OriginalName))
 			b.WriteString(": ")
 			b.WriteString(formatters.valueExpr(param.CHType, "p."+param.FieldName))
+			b.WriteString(",\n")
 		}
-		b.WriteString("}\n")
+		b.WriteString("\t}\n")
 		b.WriteString("}\n\n")
 		return
 	}
@@ -362,16 +361,15 @@ func writeArgsHelper(b *strings.Builder, model queryModel, formatters *queryPara
 		b.WriteString(param.GoType)
 	}
 	b.WriteString(") clickhouse.Parameters {\n")
-	b.WriteString("\treturn clickhouse.Parameters{")
-	for idx, param := range model.Params {
-		if idx > 0 {
-			b.WriteString(", ")
-		}
+	b.WriteString("\treturn clickhouse.Parameters{\n")
+	for _, param := range model.Params {
+		b.WriteString("\t\t")
 		b.WriteString(strconv.Quote(param.OriginalName))
 		b.WriteString(": ")
 		b.WriteString(formatters.valueExpr(param.CHType, param.LocalName))
+		b.WriteString(",\n")
 	}
-	b.WriteString("}\n")
+	b.WriteString("\t}\n")
 	b.WriteString("}\n\n")
 }
 
