@@ -1,8 +1,6 @@
 # chty-go
 
-Go-native `chty` code generator for typed ClickHouse queries.
-
-SQL files use sqlc-style annotations:
+ClickHouse SQL to Go code generator
 
 ```sql
 -- name: GetUser :one
@@ -10,6 +8,14 @@ SELECT user_id, username
 FROM users
 WHERE user_id = {user_id:Int64}
 ```
+
+## Install
+
+```sh
+go get -tool github.com/meoyawn/chty-go/cmd/chty
+```
+
+## Generate
 
 Generate Go wrappers:
 
@@ -21,12 +27,6 @@ Validate generated wrappers against live ClickHouse schema:
 
 ```sh
 go tool chty validate --generated-glob "generated/*.go" --db-url clickhouse://default@localhost:9000/default
-```
-
-Downstream setup:
-
-```sh
-go get -tool github.com/meoyawn/chty-go/cmd/chty
 ```
 
 Generation uses `github.com/ClickHouse/clickhouse-go/v2` native connections. Query parameters keep ClickHouse `{name:Type}` placeholders and are passed with `clickhouse.Named`.
