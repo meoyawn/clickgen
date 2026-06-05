@@ -72,7 +72,7 @@ func testMain(m *testing.M) int {
 		dbUnavailable = err.Error()
 		return m.Run()
 	}
-	defer closeResource(resource)
+	defer closeResource(pool, resource)
 
 	hostPort := resource.GetHostPort("9000/tcp")
 	testDBURL = fmt.Sprintf("clickhouse://%s:%s@%s/default", clickHouseUser, clickHousePassword, hostPort)
@@ -112,10 +112,13 @@ func closePool(pool dockertest.ClosablePool) {
 	_ = pool.Close(ctx)
 }
 
-func closeResource(resource dockertest.ClosableResource) {
+func closeResource(pool dockertest.Pool, resource dockertest.ClosableResource) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
 	defer cancel()
-	_ = resource.Close(ctx)
+	_, _ = pool.Client().ContainerRemove(ctx, resource.ID(), mobyclient.ContainerRemoveOptions{
+		Force:         true,
+		RemoveVolumes: true,
+	})
 }
 
 func describeResourceFailure(resource dockertest.Resource, err error) string {
