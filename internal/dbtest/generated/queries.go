@@ -40,7 +40,7 @@ type GetNumberProjection interface {
 	GetNumber() uint64
 }
 
-func (r GetNumberRow) GetNumber() uint64 { return r.Number }
+func (r *GetNumberRow) GetNumber() uint64 { return r.Number }
 
 func (r *GetNumberRow) scanTargets() []any {
 	return []any{&r.Number}
@@ -72,9 +72,9 @@ type ListNumbersProjection interface {
 	GetDoubled() uint64
 }
 
-func (r ListNumbersRow) GetNumber() uint64 { return r.Number }
+func (r *ListNumbersRow) GetNumber() uint64 { return r.Number }
 
-func (r ListNumbersRow) GetDoubled() uint64 { return r.Doubled }
+func (r *ListNumbersRow) GetDoubled() uint64 { return r.Doubled }
 
 func (r *ListNumbersRow) scanTargets() []any {
 	return []any{&r.Number, &r.Doubled}

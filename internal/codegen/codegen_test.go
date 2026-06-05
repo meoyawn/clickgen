@@ -39,7 +39,7 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		"UserID",
 		"`json:\"user_id\" ch:\"user_id\"`",
 		"type GetUserProjection interface",
-		"func (r GetUserRow) GetUserID() int64",
+		"func (r *GetUserRow) GetUserID() int64",
 		"SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}",
 		"return clickhouse.Parameters{\"user_id\": strconv.FormatInt(int64(userID), 10)}",
 		"ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getUserArgs(userID)))",

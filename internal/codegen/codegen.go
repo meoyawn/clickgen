@@ -305,7 +305,7 @@ func writeRow(b *strings.Builder, model queryModel) {
 	b.WriteString("}\n\n")
 
 	for _, field := range model.Fields {
-		b.WriteString("func (r ")
+		b.WriteString("func (r *")
 		b.WriteString(rowName)
 		b.WriteString(") Get")
 		b.WriteString(field.FieldName)
