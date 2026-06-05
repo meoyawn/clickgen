@@ -2,7 +2,12 @@
 
 ClickHouse SQL to Go code generator
 
-Problem: keep ClickHouse query params and result projections in sync with Go structs, including field names and types.
+Problem: Go row structs drift from ClickHouse SQL.
+
+For example, when you edit a `SELECT` and add, remove, rename, or retype a
+projected column, the Go row struct and scan code must change with it. clickgen
+uses the query and a live ClickHouse schema to generate that Go wrapper, so the
+query params and result projection stay in sync with Go field names and types.
 
 ```sql
 -- name: GetUser :one
