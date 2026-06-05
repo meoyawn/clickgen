@@ -78,12 +78,11 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 		models = append(models, model)
 	}
 	if needsParams {
-		imports["fmt"] = struct{}{}
 		imports["github.com/ClickHouse/clickhouse-go/v2"] = struct{}{}
-		imports["reflect"] = struct{}{}
-		imports["sort"] = struct{}{}
-		imports["strings"] = struct{}{}
-		imports["time"] = struct{}{}
+	}
+	formatters := collectQueryParameterFormatters(models, opts.Overrides)
+	for path := range formatters.imports {
+		imports[path] = struct{}{}
 	}
 
 	var b strings.Builder
@@ -94,11 +93,11 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 	writeImports(&b, imports)
 	writeCommon(&b)
 	if needsParams {
-		writeQueryParameterHelpers(&b)
+		formatters.write(&b)
 	}
 	writeQuerierInterface(&b, models)
 	for _, model := range models {
-		writeQuery(&b, model)
+		writeQuery(&b, model, &formatters)
 	}
 
 	formatted, err := format.Source([]byte(b.String()))
@@ -194,120 +193,6 @@ func NewQuerier(conn genericConn) *DBQuerier {
 `)
 }
 
-func writeQueryParameterHelpers(b *strings.Builder) {
-	b.WriteString(`func queryParameterValue(value any) string {
-	return queryParameterValueString(value, false)
-}
-
-func queryParameterLiteral(value any) string {
-	return queryParameterValueString(value, true)
-}
-
-func queryParameterValueString(value any, literal bool) string {
-	value = dereferenceQueryParameterValue(value)
-	if value == nil {
-		return "NULL"
-	}
-
-	switch typed := value.(type) {
-	case time.Time:
-		formatted := typed.Format("2006-01-02 15:04:05.999999999")
-		if literal {
-			return quoteQueryParameterString(formatted)
-		}
-		return formatted
-	case time.Duration:
-		formatted := queryParameterDuration(typed)
-		if literal {
-			return quoteQueryParameterString(formatted)
-		}
-		return formatted
-	case string:
-		if literal {
-			return quoteQueryParameterString(typed)
-		}
-		return typed
-	}
-
-	reflected := reflect.ValueOf(value)
-	if isUUIDQueryParameter(reflected) {
-		formatted := fmt.Sprint(value)
-		if literal {
-			return quoteQueryParameterString(formatted)
-		}
-		return formatted
-	}
-
-	switch reflected.Kind() {
-	case reflect.Array, reflect.Slice:
-		parts := make([]string, 0, reflected.Len())
-		for idx := range reflected.Len() {
-			parts = append(parts, queryParameterLiteral(reflected.Index(idx).Interface()))
-		}
-		return "[" + strings.Join(parts, ",") + "]"
-	case reflect.Map:
-		return queryParameterMap(reflected)
-	default:
-		return fmt.Sprint(value)
-	}
-}
-
-func isUUIDQueryParameter(value reflect.Value) bool {
-	valueType := value.Type()
-	return valueType.PkgPath() == "github.com/google/uuid" && valueType.Name() == "UUID"
-}
-
-func queryParameterMap(value reflect.Value) string {
-	keys := value.MapKeys()
-	sort.Slice(keys, func(left, right int) bool {
-		return queryParameterLiteral(keys[left].Interface()) < queryParameterLiteral(keys[right].Interface())
-	})
-
-	parts := make([]string, 0, len(keys)*2)
-	for _, key := range keys {
-		parts = append(parts, queryParameterLiteral(key.Interface()))
-		parts = append(parts, queryParameterLiteral(value.MapIndex(key).Interface()))
-	}
-	return "map(" + strings.Join(parts, ",") + ")"
-}
-
-func dereferenceQueryParameterValue(value any) any {
-	reflected := reflect.ValueOf(value)
-	for reflected.IsValid() && reflected.Kind() == reflect.Ptr {
-		if reflected.IsNil() {
-			return nil
-		}
-		reflected = reflected.Elem()
-	}
-	if !reflected.IsValid() {
-		return nil
-	}
-	return reflected.Interface()
-}
-
-func queryParameterDuration(value time.Duration) string {
-	sign := ""
-	if value < 0 {
-		sign = "-"
-		value = -value
-	}
-	totalSeconds := int64(value / time.Second)
-	nanos := int64(value % time.Second)
-	if nanos == 0 {
-		return fmt.Sprintf("%s%02d:%02d:%02d", sign, totalSeconds/3600, totalSeconds/60%60, totalSeconds%60)
-	}
-	return fmt.Sprintf("%s%02d:%02d:%02d.%09d", sign, totalSeconds/3600, totalSeconds/60%60, totalSeconds%60, nanos)
-}
-
-func quoteQueryParameterString(value string) string {
-	escaped := strings.ReplaceAll(value, ` + strconv.Quote(`\`) + `, ` + strconv.Quote(`\\`) + `)
-	escaped = strings.ReplaceAll(escaped, "'", ` + strconv.Quote(`\'`) + `)
-	return "'" + escaped + "'"
-}
-
-`)
-}
-
 func writeQuerierInterface(b *strings.Builder, models []queryModel) {
 	b.WriteString("type Querier interface {\n")
 	for _, model := range models {
@@ -318,7 +203,7 @@ func writeQuerierInterface(b *strings.Builder, models []queryModel) {
 	b.WriteString("}\n\n")
 }
 
-func writeQuery(b *strings.Builder, model queryModel) {
+func writeQuery(b *strings.Builder, model queryModel, formatters *queryParameterFormatterRegistry) {
 	writeMetadata(b, model)
 	b.WriteString("const ")
 	b.WriteString(model.ConstName)
@@ -333,7 +218,7 @@ func writeQuery(b *strings.Builder, model queryModel) {
 		writeRow(b, model)
 	}
 	if len(model.Params) > 0 {
-		writeArgsHelper(b, model)
+		writeArgsHelper(b, model, formatters)
 	}
 	writeMethod(b, model)
 }
@@ -446,7 +331,7 @@ func writeRow(b *strings.Builder, model queryModel) {
 	b.WriteString("}\n\n")
 }
 
-func writeArgsHelper(b *strings.Builder, model queryModel) {
+func writeArgsHelper(b *strings.Builder, model queryModel, formatters *queryParameterFormatterRegistry) {
 	if len(model.Params) >= 3 {
 		b.WriteString("func (p ")
 		b.WriteString(model.MethodName)
@@ -457,9 +342,8 @@ func writeArgsHelper(b *strings.Builder, model queryModel) {
 				b.WriteString(", ")
 			}
 			b.WriteString(strconv.Quote(param.OriginalName))
-			b.WriteString(": queryParameterValue(p.")
-			b.WriteString(param.FieldName)
-			b.WriteString(")")
+			b.WriteString(": ")
+			b.WriteString(formatters.valueExpr(param.CHType, "p."+param.FieldName))
 		}
 		b.WriteString("}\n")
 		b.WriteString("}\n\n")
@@ -484,9 +368,8 @@ func writeArgsHelper(b *strings.Builder, model queryModel) {
 			b.WriteString(", ")
 		}
 		b.WriteString(strconv.Quote(param.OriginalName))
-		b.WriteString(": queryParameterValue(")
-		b.WriteString(param.LocalName)
-		b.WriteString(")")
+		b.WriteString(": ")
+		b.WriteString(formatters.valueExpr(param.CHType, param.LocalName))
 	}
 	b.WriteString("}\n")
 	b.WriteString("}\n\n")

@@ -41,7 +41,7 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		"type GetUserProjection interface",
 		"func (r GetUserRow) GetUserID() int64",
 		"SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}",
-		"return clickhouse.Parameters{\"user_id\": queryParameterValue(userID)}",
+		"return clickhouse.Parameters{\"user_id\": strconv.FormatInt(int64(userID), 10)}",
 		"ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getUserArgs(userID)))",
 		"// chty:query\tGetUser\tone\t",
 	} {
@@ -75,7 +75,7 @@ func TestGenerateKeepsLiteralAtTokensOutOfBindSyntax(t *testing.T) {
 		"email = 'admin@example.com'",
 		"note = '?'",
 		"user_id = {user_id:Int64}",
-		"return clickhouse.Parameters{\"user_id\": queryParameterValue(userID)}",
+		"return clickhouse.Parameters{\"user_id\": strconv.FormatInt(int64(userID), 10)}",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated output missing %q:\n%s", want, got)
@@ -105,7 +105,7 @@ func TestGenerateDuplicatesRepeatedParameterArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(generated)
-	if !strings.Contains(got, "return clickhouse.Parameters{\"id\": queryParameterValue(id)}") {
+	if !strings.Contains(got, "return clickhouse.Parameters{\"id\": strconv.FormatInt(int64(id), 10)}") {
 		t.Fatalf("generated output did not include repeated parameter map entry:\n%s", got)
 	}
 }
@@ -117,10 +117,12 @@ func TestGenerateFormatsNestedQueryParameterLiterals(t *testing.T) {
 			Query: parser.Query{
 				Name: "NestedParams",
 				Cmd:  parser.CommandExec,
-				SQL:  "INSERT INTO events VALUES ({seen_at:Array(DateTime)}, {attrs:Map(String, Array(UInt64))})",
+				SQL:  "INSERT INTO events VALUES ({seen_at:Array(DateTime)}, {attrs:Map(String, Array(UInt64))}, {id:UUID}, {note:Nullable(String)})",
 				Params: []parser.Parameter{
 					{Name: "seen_at", ClickHouseType: "Array(DateTime)"},
 					{Name: "attrs", ClickHouseType: "Map(String, Array(UInt64))"},
+					{Name: "id", ClickHouseType: "UUID"},
+					{Name: "note", ClickHouseType: "Nullable(String)"},
 				},
 			},
 		},
@@ -130,15 +132,30 @@ func TestGenerateFormatsNestedQueryParameterLiterals(t *testing.T) {
 	}
 	got := string(generated)
 	for _, want := range []string{
-		"case reflect.Map:",
-		"return queryParameterMap(reflected)",
-		"return quoteQueryParameterString(formatted)",
+		"func queryParameterValueArrayDateTime(value []time.Time) string",
+		"parts = append(parts, quoteQueryParameterString(item.Format(\"2006-01-02 15:04:05.999999999\")))",
+		"func queryParameterValueMapStringArrayUInt64(value map[string][]uint64) string",
+		"sort.Slice(keys, func(left, right int) bool",
+		"parts = append(parts, queryParameterValueArrayUInt64(value[key]))",
+		"\"id\": p.ID.String()",
+		"func queryParameterValueNullableString(value *string) string",
 		"return \"map(\" + strings.Join(parts, \",\") + \")\"",
-		"func isUUIDQueryParameter(value reflect.Value) bool",
-		"return valueType.PkgPath() == \"github.com/google/uuid\" && valueType.Name() == \"UUID\"",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated output missing %q:\n%s", want, got)
+		}
+	}
+	if banned := "re" + "flect"; strings.Contains(got, banned) {
+		t.Fatalf("generated output contains %q:\n%s", banned, got)
+	}
+	for _, notWant := range []string{
+		"func queryParameterValueUUID",
+		"func queryParameterLiteralUInt64",
+		"func queryParameterLiteralString",
+		"func queryParameterValueString",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("generated output contains unnecessary helper %q:\n%s", notWant, got)
 		}
 	}
 }
