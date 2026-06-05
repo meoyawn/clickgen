@@ -32,9 +32,8 @@ func TestGenerateGoldenOutput(t *testing.T) {
 	got := string(generated)
 	for _, want := range []string{
 		"package generated",
-		"type genericConn interface",
-		"type Querier interface",
-		"GetUser(ctx context.Context, userID int64) (GetUserRow, error)",
+		"type DBQuerier interface",
+		"func GetUser(ctx context.Context, db DBQuerier, userID int64) (GetUserRow, error)",
 		"type GetUserRow struct",
 		"UserID",
 		"`json:\"user_id\" ch:\"user_id\"`",
@@ -46,6 +45,15 @@ func TestGenerateGoldenOutput(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated output missing %q:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{
+		"type genericConn interface",
+		"type Querier interface",
+		"func NewQuerier",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("generated output contains %q:\n%s", notWant, got)
 		}
 	}
 }
@@ -197,10 +205,10 @@ func TestGenerateParamFormatting(t *testing.T) {
 	}
 	got := string(generated)
 	for _, want := range []string{
-		"NoParams(ctx context.Context) (uint8, error)",
-		"TwoParams(ctx context.Context, min uint64, limit uint64) ([]TwoParamsRow, error)",
+		"NoParams(ctx context.Context, db DBQuerier) (uint8, error)",
+		"TwoParams(ctx context.Context, db DBQuerier, min uint64, limit uint64) ([]TwoParamsRow, error)",
 		"type ThreeParamsParams struct",
-		"ThreeParams(ctx context.Context, params ThreeParamsParams) error",
+		"ThreeParams(ctx context.Context, db DBQuerier, params ThreeParamsParams) error",
 		"func (p ThreeParamsParams) args() clickhouse.Parameters",
 	} {
 		if !strings.Contains(got, want) {

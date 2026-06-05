@@ -222,9 +222,8 @@ func TestGeneratedExecution(t *testing.T) {
 	conn := requireDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
 	defer cancel()
-	queries := fixture.NewQuerier(conn)
 
-	number, err := queries.GetNumber(ctx, 7)
+	number, err := fixture.GetNumber(ctx, conn, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +231,7 @@ func TestGeneratedExecution(t *testing.T) {
 		t.Fatalf("GetNumber = %d, want 7", number)
 	}
 
-	rows, err := queries.ListNumbers(ctx, 3)
+	rows, err := fixture.ListNumbers(ctx, conn, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +242,7 @@ func TestGeneratedExecution(t *testing.T) {
 		t.Fatalf("rows[2] = %#v", rows[2])
 	}
 
-	rangeRows, err := queries.RangeNumbers(ctx, 2, 5)
+	rangeRows, err := fixture.RangeNumbers(ctx, conn, 2, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +253,7 @@ func TestGeneratedExecution(t *testing.T) {
 		t.Fatalf("rangeRows = %#v", rangeRows)
 	}
 
-	if err := queries.InsertUser(ctx, fixture.InsertUserParams{UserID: 1, Username: "ada", Age: 37}); err != nil {
+	if err := fixture.InsertUser(ctx, conn, fixture.InsertUserParams{UserID: 1, Username: "ada", Age: 37}); err != nil {
 		t.Fatal(err)
 	}
 	var count uint64

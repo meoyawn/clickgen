@@ -95,7 +95,6 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 	if needsParams {
 		formatters.write(&b)
 	}
-	writeQuerierInterface(&b, models)
 	for _, model := range models {
 		writeQuery(&b, model, &formatters)
 	}
@@ -176,31 +175,13 @@ func writeImports(b *strings.Builder, imports map[string]struct{}) {
 }
 
 func writeCommon(b *strings.Builder) {
-	b.WriteString(`type genericConn interface {
+	b.WriteString(`type DBQuerier interface {
 	Query(ctx context.Context, query string, args ...any) (driver.Rows, error)
 	QueryRow(ctx context.Context, query string, args ...any) driver.Row
 	Exec(ctx context.Context, query string, args ...any) error
 }
 
-type DBQuerier struct {
-	conn genericConn
-}
-
-func NewQuerier(conn genericConn) *DBQuerier {
-	return &DBQuerier{conn: conn}
-}
-
 `)
-}
-
-func writeQuerierInterface(b *strings.Builder, models []queryModel) {
-	b.WriteString("type Querier interface {\n")
-	for _, model := range models {
-		b.WriteString("\t")
-		b.WriteString(methodSignature(model, true))
-		b.WriteString("\n")
-	}
-	b.WriteString("}\n\n")
 }
 
 func writeQuery(b *strings.Builder, model queryModel, formatters *queryParameterFormatterRegistry) {
@@ -374,14 +355,14 @@ func writeArgsHelper(b *strings.Builder, model queryModel, formatters *queryPara
 }
 
 func writeMethod(b *strings.Builder, model queryModel) {
-	b.WriteString("func (q *DBQuerier) ")
+	b.WriteString("func ")
 	b.WriteString(methodSignature(model, true))
 	b.WriteString(" {\n")
 	writeArgsAssignment(b, model)
 
 	switch model.Kind {
 	case parser.CommandExec:
-		b.WriteString("\treturn q.conn.Exec(ctx, ")
+		b.WriteString("\treturn db.Exec(ctx, ")
 		b.WriteString(model.ConstName)
 		b.WriteString(")\n")
 	case parser.CommandOne:
@@ -389,7 +370,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		b.WriteString("\tvar row ")
 		b.WriteString(rowName)
 		b.WriteString("\n")
-		b.WriteString("\tif err := q.conn.QueryRow(ctx, ")
+		b.WriteString("\tif err := db.QueryRow(ctx, ")
 		b.WriteString(model.ConstName)
 		b.WriteString(").Scan(row.scanTargets()...); err != nil {\n")
 		if len(model.Fields) == 1 {
@@ -411,7 +392,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		}
 	case parser.CommandMany:
 		rowName := model.MethodName + "Row"
-		b.WriteString("\trows, err := q.conn.Query(ctx, ")
+		b.WriteString("\trows, err := db.Query(ctx, ")
 		b.WriteString(model.ConstName)
 		b.WriteString(")\n")
 		b.WriteString("\tif err != nil {\n\t\treturn nil, err\n\t}\n")
@@ -458,7 +439,7 @@ func methodSignature(model queryModel, includeName bool) string {
 		b.WriteString(model.MethodName)
 	}
 	b.WriteString("(")
-	b.WriteString("ctx context.Context")
+	b.WriteString("ctx context.Context, db DBQuerier")
 	if len(model.Params) >= 3 {
 		b.WriteString(", params ")
 		b.WriteString(model.MethodName)
@@ -510,7 +491,7 @@ var reservedLocalNames = map[string]struct{}{
 	"goto": {}, "if": {}, "import": {}, "interface": {}, "map": {}, "package": {},
 	"range": {}, "return": {}, "select": {}, "struct": {}, "switch": {}, "type": {},
 	"var": {}, "ctx": {}, "err": {}, "out": {}, "params": {}, "q": {}, "query": {},
-	"row": {}, "rows": {},
+	"row": {}, "rows": {}, "db": {},
 }
 
 func exportedIdentifier(input string) string {

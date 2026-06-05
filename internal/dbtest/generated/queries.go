@@ -10,25 +10,10 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-type genericConn interface {
+type DBQuerier interface {
 	Query(ctx context.Context, query string, args ...any) (driver.Rows, error)
 	QueryRow(ctx context.Context, query string, args ...any) driver.Row
 	Exec(ctx context.Context, query string, args ...any) error
-}
-
-type DBQuerier struct {
-	conn genericConn
-}
-
-func NewQuerier(conn genericConn) *DBQuerier {
-	return &DBQuerier{conn: conn}
-}
-
-type Querier interface {
-	GetNumber(ctx context.Context, number uint64) (uint64, error)
-	ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNumbersRow, error)
-	RangeNumbers(ctx context.Context, minNumber uint64, maxNumber uint64) ([]RangeNumbersRow, error)
-	InsertUser(ctx context.Context, params InsertUserParams) error
 }
 
 const getNumberSQL = "SELECT number FROM system.numbers WHERE number = {number:UInt64} LIMIT 1"
@@ -53,10 +38,10 @@ func getNumberArgs(number uint64) clickhouse.Parameters {
 	}
 }
 
-func (q *DBQuerier) GetNumber(ctx context.Context, number uint64) (uint64, error) {
+func GetNumber(ctx context.Context, db DBQuerier, number uint64) (uint64, error) {
 	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getNumberArgs(number)))
 	var row GetNumberRow
-	if err := q.conn.QueryRow(ctx, getNumberSQL).Scan(row.scanTargets()...); err != nil {
+	if err := db.QueryRow(ctx, getNumberSQL).Scan(row.scanTargets()...); err != nil {
 		var zero uint64
 		return zero, err
 	}
@@ -89,9 +74,9 @@ func listNumbersArgs(maxNumber uint64) clickhouse.Parameters {
 	}
 }
 
-func (q *DBQuerier) ListNumbers(ctx context.Context, maxNumber uint64) ([]ListNumbersRow, error) {
+func ListNumbers(ctx context.Context, db DBQuerier, maxNumber uint64) ([]ListNumbersRow, error) {
 	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(listNumbersArgs(maxNumber)))
-	rows, err := q.conn.Query(ctx, listNumbersSQL)
+	rows, err := db.Query(ctx, listNumbersSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +119,9 @@ func rangeNumbersArgs(minNumber uint64, maxNumber uint64) clickhouse.Parameters 
 	}
 }
 
-func (q *DBQuerier) RangeNumbers(ctx context.Context, minNumber uint64, maxNumber uint64) ([]RangeNumbersRow, error) {
+func RangeNumbers(ctx context.Context, db DBQuerier, minNumber uint64, maxNumber uint64) ([]RangeNumbersRow, error) {
 	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(rangeNumbersArgs(minNumber, maxNumber)))
-	rows, err := q.conn.Query(ctx, rangeNumbersSQL)
+	rows, err := db.Query(ctx, rangeNumbersSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +157,7 @@ func (p InsertUserParams) args() clickhouse.Parameters {
 	}
 }
 
-func (q *DBQuerier) InsertUser(ctx context.Context, params InsertUserParams) error {
+func InsertUser(ctx context.Context, db DBQuerier, params InsertUserParams) error {
 	ctx = clickhouse.Context(ctx, clickhouse.WithParameters(params.args()))
-	return q.conn.Exec(ctx, insertUserSQL)
+	return db.Exec(ctx, insertUserSQL)
 }
