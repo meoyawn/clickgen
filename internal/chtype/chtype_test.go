@@ -1,6 +1,10 @@
 package chtype
 
-import "testing"
+import (
+	"testing"
+
+	"gotest.tools/v3/assert"
+)
 
 func TestMapPreservesIntegerWidths(t *testing.T) {
 	t.Parallel()
@@ -17,9 +21,7 @@ func TestMapPreservesIntegerWidths(t *testing.T) {
 		"UInt256": "big.Int",
 	}
 	for chType, want := range cases {
-		if got := Map(chType, nil).Name; got != want {
-			t.Fatalf("Map(%q) = %q, want %q", chType, got, want)
-		}
+		assert.Equal(t, Map(chType, nil).Name, want, "Map(%q)", chType)
 	}
 }
 
@@ -41,9 +43,7 @@ func TestMapComplexTypes(t *testing.T) {
 		"SimpleAggregateFunction(sum, UInt64)": "uint64",
 	}
 	for chType, want := range cases {
-		if got := Map(chType, nil).Name; got != want {
-			t.Fatalf("Map(%q) = %q, want %q", chType, got, want)
-		}
+		assert.Equal(t, Map(chType, nil).Name, want, "Map(%q)", chType)
 	}
 }
 
@@ -51,9 +51,7 @@ func TestMapOverrides(t *testing.T) {
 	t.Parallel()
 	overrides := Overrides{}
 	overrides.Add("JSON", "map[string]any")
-	if got := Map("JSON", overrides).Name; got != "map[string]any" {
-		t.Fatalf("override Map(JSON) = %q", got)
-	}
+	assert.Equal(t, Map("JSON", overrides).Name, "map[string]any")
 }
 
 func TestIsNullable(t *testing.T) {
@@ -67,8 +65,6 @@ func TestIsNullable(t *testing.T) {
 		"Nullable(Array(Nullable(String)))": true,
 	}
 	for chType, want := range cases {
-		if got := IsNullable(chType); got != want {
-			t.Fatalf("IsNullable(%q) = %t, want %t", chType, got, want)
-		}
+		assert.Equal(t, IsNullable(chType), want, "IsNullable(%q)", chType)
 	}
 }

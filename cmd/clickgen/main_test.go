@@ -1,10 +1,12 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"gotest.tools/v3/assert"
+)
 
 func TestRunVersionSmoke(t *testing.T) {
 	t.Parallel()
-	if err := run([]string{"--version"}); err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, run([]string{"--version"}))
 }

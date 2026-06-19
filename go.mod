@@ -6,6 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
 	github.com/moby/moby/client v0.4.0
 	github.com/ory/dockertest/v4 v4.0.0
+	gotest.tools/v3 v3.5.2
 )
 
 tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint

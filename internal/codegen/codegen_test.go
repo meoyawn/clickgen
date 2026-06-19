@@ -6,6 +6,7 @@ import (
 
 	"github.com/meoyawn/clickgen/internal/parser"
 	"github.com/meoyawn/clickgen/internal/schema"
+	"gotest.tools/v3/assert"
 )
 
 func TestGenerateGoldenOutput(t *testing.T) {
@@ -26,9 +27,7 @@ func TestGenerateGoldenOutput(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	got := string(generated)
 	for _, want := range []string{
 		"package generated",
@@ -42,9 +41,7 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		"ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getUserArgs(userID)))",
 		"// clickgen:query\tGetUser\tone\t",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
+		assert.Assert(t, strings.Contains(got, want), "generated output missing %q:\n%s", want, got)
 	}
 }
 
@@ -82,9 +79,7 @@ func TestGenerateSharedRowAnnotation(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 
 	got := string(generated)
 	for _, want := range []string{
@@ -94,13 +89,9 @@ func TestGenerateSharedRowAnnotation(t *testing.T) {
 		"var row UserRow",
 		"var out []UserRow",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
+		assert.Assert(t, strings.Contains(got, want), "generated output missing %q:\n%s", want, got)
 	}
-	if count := strings.Count(got, "type UserRow struct"); count != 1 {
-		t.Fatalf("UserRow emitted %d times, want 1:\n%s", count, got)
-	}
+	assert.Equal(t, strings.Count(got, "type UserRow struct"), 1, "generated output:\n%s", got)
 }
 
 func TestGenerateSharedRowAnnotationRejectsIncompatibleShape(t *testing.T) {
@@ -121,17 +112,13 @@ func TestGenerateSharedRowAnnotationRejectsIncompatibleShape(t *testing.T) {
 			},
 		},
 	})
-	if err == nil {
-		t.Fatal("expected incompatible shared row shape error")
-	}
+	assert.Assert(t, err != nil, "expected incompatible shared row shape error")
 	for _, want := range []string{
 		"row=User used by incompatible queries FindUserByID and FindUsers",
 		`name="username" field=Username type=string nullable=false`,
 		`name="username" field=Username type=*string nullable=true`,
 	} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error %q missing %q", err, want)
-		}
+		assert.Assert(t, strings.Contains(err.Error(), want), "error %q missing %q", err, want)
 	}
 }
 
@@ -143,22 +130,16 @@ func TestGenerateSharedRowAnnotationKeepsSingleColumnScalar(t *testing.T) {
 			Result: []schema.Column{{Name: "user_id", ClickHouseType: "Int64"}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 
 	got := string(generated)
 	for _, want := range []string{
 		"func FindUserID(ctx context.Context, db DBQuerier) (int64, error)",
 		"type FindUserIDRow struct",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
+		assert.Assert(t, strings.Contains(got, want), "generated output missing %q:\n%s", want, got)
 	}
-	if strings.Contains(got, "type UserRow struct") {
-		t.Fatalf("single-column row annotation emitted shared row struct:\n%s", got)
-	}
+	assert.Assert(t, !strings.Contains(got, "type UserRow struct"), "single-column row annotation emitted shared row struct:\n%s", got)
 }
 
 func TestGenerateKeepsLiteralAtTokensOutOfBindSyntax(t *testing.T) {
@@ -176,9 +157,7 @@ func TestGenerateKeepsLiteralAtTokensOutOfBindSyntax(t *testing.T) {
 			Result: []schema.Column{{Name: "user_id", ClickHouseType: "Int64"}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 
 	got := string(generated)
 	for _, want := range []string{
@@ -186,13 +165,10 @@ func TestGenerateKeepsLiteralAtTokensOutOfBindSyntax(t *testing.T) {
 		"note = '?'",
 		"user_id = {user_id:Int64}",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
+		assert.Assert(t, strings.Contains(got, want), "generated output missing %q:\n%s", want, got)
 	}
-	if strings.Contains(got, "@user_id") || strings.Contains(got, "user_id = ?") {
-		t.Fatalf("generated output contains legacy bind syntax:\n%s", got)
-	}
+	assert.Assert(t, !strings.Contains(got, "@user_id"), "generated output contains legacy bind syntax:\n%s", got)
+	assert.Assert(t, !strings.Contains(got, "user_id = ?"), "generated output contains legacy bind syntax:\n%s", got)
 }
 
 func TestGenerateDuplicatesRepeatedParameterArgs(t *testing.T) {
@@ -210,12 +186,8 @@ func TestGenerateDuplicatesRepeatedParameterArgs(t *testing.T) {
 			Result: []schema.Column{{Name: "sum", ClickHouseType: "Int64"}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(generated) == 0 {
-		t.Fatal("generated output is empty")
-	}
+	assert.NilError(t, err)
+	assert.Assert(t, len(generated) > 0, "generated output is empty")
 }
 
 func TestGenerateFormatsNestedQueryParameterLiterals(t *testing.T) {
@@ -235,9 +207,7 @@ func TestGenerateFormatsNestedQueryParameterLiterals(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	got := string(generated)
 	for _, want := range []string{
 		"func queryParameterValueArrayDateTime(value []time.Time) string",
@@ -248,12 +218,10 @@ func TestGenerateFormatsNestedQueryParameterLiterals(t *testing.T) {
 		"func queryParameterValueNullableString(value *string) string",
 		"return \"map(\" + strings.Join(parts, \",\") + \")\"",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
+		assert.Assert(t, strings.Contains(got, want), "generated output missing %q:\n%s", want, got)
 	}
 	if banned := "re" + "flect"; strings.Contains(got, banned) {
-		t.Fatalf("generated output contains %q:\n%s", banned, got)
+		assert.Assert(t, false, "generated output contains %q:\n%s", banned, got)
 	}
 }
 
@@ -293,9 +261,7 @@ func TestGenerateParamFormatting(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	got := string(generated)
 	for _, want := range []string{
 		"NoParams(ctx context.Context, db DBQuerier) (uint8, error)",
@@ -304,8 +270,6 @@ func TestGenerateParamFormatting(t *testing.T) {
 		"ThreeParams(ctx context.Context, db DBQuerier, params ThreeParamsParams) error",
 		"func (p ThreeParamsParams) args() clickhouse.Parameters",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated output missing %q:\n%s", want, got)
-		}
+		assert.Assert(t, strings.Contains(got, want), "generated output missing %q:\n%s", want, got)
 	}
 }

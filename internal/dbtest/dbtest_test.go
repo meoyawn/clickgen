@@ -17,6 +17,7 @@ import (
 	"github.com/meoyawn/clickgen/internal/validator"
 	mobyclient "github.com/moby/moby/client"
 	"github.com/ory/dockertest/v4"
+	"gotest.tools/v3/assert"
 )
 
 const (
@@ -188,9 +189,7 @@ func requireDB(t *testing.T) driver.Conn {
 		t.Skipf("ClickHouse unavailable: %s", dbUnavailable)
 	}
 	conn, err := schema.Open(testDBURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Close()
 	})
@@ -203,18 +202,12 @@ func TestDescribe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), dbtestCleanupTimeout)
 	defer cancel()
 	columns, err := schema.Describe(ctx, conn, "SELECT number, number * 2 AS doubled FROM system.numbers LIMIT 1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(columns) != 2 {
-		t.Fatalf("len(columns) = %d, want 2: %#v", len(columns), columns)
-	}
-	if columns[0].Name != "number" || columns[0].ClickHouseType != "UInt64" {
-		t.Fatalf("columns[0] = %#v", columns[0])
-	}
-	if columns[1].Name != "doubled" || columns[1].ClickHouseType != "UInt64" {
-		t.Fatalf("columns[1] = %#v", columns[1])
-	}
+	assert.NilError(t, err)
+	assert.Equal(t, len(columns), 2, "columns: %#v", columns)
+	assert.Equal(t, columns[0].Name, "number")
+	assert.Equal(t, columns[0].ClickHouseType, "UInt64")
+	assert.Equal(t, columns[1].Name, "doubled")
+	assert.Equal(t, columns[1].ClickHouseType, "UInt64")
 }
 
 func TestGeneratedExecution(t *testing.T) {
@@ -224,45 +217,25 @@ func TestGeneratedExecution(t *testing.T) {
 	defer cancel()
 
 	number, err := fixture.GetNumber(ctx, conn, 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if number != 7 {
-		t.Fatalf("GetNumber = %d, want 7", number)
-	}
+	assert.NilError(t, err)
+	assert.Equal(t, number, uint64(7))
 
 	rows, err := fixture.ListNumbers(ctx, conn, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 3 {
-		t.Fatalf("len(rows) = %d, want 3", len(rows))
-	}
-	if rows[2].Number != 2 || rows[2].Doubled != 4 {
-		t.Fatalf("rows[2] = %#v", rows[2])
-	}
+	assert.NilError(t, err)
+	assert.Equal(t, len(rows), 3)
+	assert.Equal(t, rows[2].Number, uint64(2))
+	assert.Equal(t, rows[2].Doubled, uint64(4))
 
 	rangeRows, err := fixture.RangeNumbers(ctx, conn, 2, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rangeRows) != 3 {
-		t.Fatalf("len(rangeRows) = %d, want 3", len(rangeRows))
-	}
-	if rangeRows[0].Number != 2 || rangeRows[2].Number != 4 {
-		t.Fatalf("rangeRows = %#v", rangeRows)
-	}
+	assert.NilError(t, err)
+	assert.Equal(t, len(rangeRows), 3)
+	assert.Equal(t, rangeRows[0].Number, uint64(2))
+	assert.Equal(t, rangeRows[2].Number, uint64(4))
 
-	if err := fixture.InsertUser(ctx, conn, fixture.InsertUserParams{UserID: 1, Username: "ada", Age: 37}); err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, fixture.InsertUser(ctx, conn, fixture.InsertUserParams{UserID: 1, Username: "ada", Age: 37}))
 	var count uint64
-	if err := conn.QueryRow(ctx, "SELECT count() FROM clickgen_users WHERE user_id = 1").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Fatalf("inserted count = %d, want 1", count)
-	}
+	assert.NilError(t, conn.QueryRow(ctx, "SELECT count() FROM clickgen_users WHERE user_id = 1").Scan(&count))
+	assert.Equal(t, count, uint64(1))
 }
 
 func TestSchemaDriftValidation(t *testing.T) {
@@ -280,19 +253,11 @@ func TestSchemaDriftValidation(t *testing.T) {
 			Result: []schema.Column{{Name: "number", ClickHouseType: "String"}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, err)
 	path := filepath.Join(t.TempDir(), "clickgen_gen.go")
-	if err := os.WriteFile(path, generated, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	assert.NilError(t, os.WriteFile(path, generated, 0o644))
 
 	valid, errors := validator.ValidateFile(ctx, path, testDBURL, nil)
-	if valid {
-		t.Fatal("ValidateFile returned valid, want drift error")
-	}
-	if !strings.Contains(strings.Join(errors, "\n"), "Result type mismatch for 'number'") {
-		t.Fatalf("errors = %#v", errors)
-	}
+	assert.Assert(t, !valid, "ValidateFile returned valid, want drift error")
+	assert.Assert(t, strings.Contains(strings.Join(errors, "\n"), "Result type mismatch for 'number'"), "errors = %#v", errors)
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/meoyawn/clickgen/internal/parser"
 	"github.com/meoyawn/clickgen/internal/schema"
+	"gotest.tools/v3/assert"
 )
 
 func TestValidateParameterDiffs(t *testing.T) {
@@ -26,9 +27,7 @@ func TestValidateParameterDiffs(t *testing.T) {
 		"Generated parameters has parameter not in query: extra",
 		"Parameter type mismatch for 'min': query expects uint64, generated parameters has string",
 	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("errors missing %q: %#v", want, errors)
-		}
+		assert.Assert(t, strings.Contains(joined, want), "errors missing %q: %#v", want, errors)
 	}
 }
 
@@ -53,8 +52,6 @@ func TestValidateResultSchemaDiffs(t *testing.T) {
 		"Query result has column not in generated result: extra",
 		"Result type mismatch for 'number': query returns uint64, generated result expects string",
 	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("errors missing %q: %#v", want, errors)
-		}
+		assert.Assert(t, strings.Contains(joined, want), "errors missing %q: %#v", want, errors)
 	}
 }

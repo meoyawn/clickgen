@@ -1,6 +1,10 @@
 package parser
 
-import "testing"
+import (
+	"testing"
+
+	"gotest.tools/v3/assert"
+)
 
 func TestExtractParameters(t *testing.T) {
 	t.Parallel()
@@ -12,23 +16,15 @@ WHERE age >= {min_age:Int32}
   AND age <= {min_age:Int32}
 `
 	params := ExtractParameters(query)
-	if len(params) != 2 {
-		t.Fatalf("len(params) = %d, want 2", len(params))
-	}
-	if params[0].Name != "min_age" || params[0].ClickHouseType != "Int32" {
-		t.Fatalf("params[0] = %#v", params[0])
-	}
-	if params[1].Name != "tags" || params[1].ClickHouseType != "Array(String)" {
-		t.Fatalf("params[1] = %#v", params[1])
-	}
+	assert.Equal(t, len(params), 2)
+	assert.DeepEqual(t, params[0], Parameter{Name: "min_age", ClickHouseType: "Int32"})
+	assert.DeepEqual(t, params[1], Parameter{Name: "tags", ClickHouseType: "Array(String)"})
 }
 
 func TestExtractParametersRejectsConflictingDuplicateTypes(t *testing.T) {
 	t.Parallel()
 	_, err := ExtractParametersStrict("SELECT {id:Int32}, {id:String}")
-	if err == nil {
-		t.Fatal("expected conflicting duplicate parameter error")
-	}
+	assert.Assert(t, err != nil, "expected conflicting duplicate parameter error")
 }
 
 func TestExtractParametersRejectsLegacyBindPlaceholders(t *testing.T) {
@@ -39,9 +35,7 @@ func TestExtractParametersRejectsLegacyBindPlaceholders(t *testing.T) {
 		"SELECT * FROM users WHERE id = $1",
 	} {
 		_, err := ExtractParametersStrict(query)
-		if err == nil {
-			t.Fatalf("expected legacy bind error for %q", query)
-		}
+		assert.Assert(t, err != nil, "expected legacy bind error for %q", query)
 	}
 }
 
@@ -58,12 +52,8 @@ WHERE email = 'admin@example.com'
 /* ignored = ? */
 `
 	params, err := ExtractParametersStrict(query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(params) != 1 || params[0].Name != "id" {
-		t.Fatalf("params = %#v, want id only", params)
-	}
+	assert.NilError(t, err)
+	assert.DeepEqual(t, params, []Parameter{{Name: "id", ClickHouseType: "UInt64"}})
 }
 
 func TestParseAnnotatedSQL(t *testing.T) {
@@ -78,33 +68,20 @@ SELECT user_id FROM users WHERE username LIKE {pattern:String}
 -- name: InsertUser :exec
 INSERT INTO users (user_id, username) VALUES ({user_id:Int64}, {username:String})
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(queries) != 3 {
-		t.Fatalf("len(queries) = %d, want 3", len(queries))
-	}
-	if queries[0].Name != "GetUser" || queries[0].Cmd != CommandOne {
-		t.Fatalf("queries[0] = %#v", queries[0])
-	}
-	if queries[0].RowType != "User" {
-		t.Fatalf("queries[0].RowType = %q, want User", queries[0].RowType)
-	}
-	if queries[1].Name != "SearchUsers" || queries[1].Cmd != CommandMany {
-		t.Fatalf("queries[1] = %#v", queries[1])
-	}
-	if queries[1].RowType != "" {
-		t.Fatalf("queries[1].RowType = %q, want empty", queries[1].RowType)
-	}
-	if queries[2].Name != "InsertUser" || queries[2].Cmd != CommandExec {
-		t.Fatalf("queries[2] = %#v", queries[2])
-	}
+	assert.NilError(t, err)
+	assert.Equal(t, len(queries), 3)
+	assert.Equal(t, queries[0].Name, "GetUser")
+	assert.Equal(t, queries[0].Cmd, CommandOne)
+	assert.Equal(t, queries[0].RowType, "User")
+	assert.Equal(t, queries[1].Name, "SearchUsers")
+	assert.Equal(t, queries[1].Cmd, CommandMany)
+	assert.Equal(t, queries[1].RowType, "")
+	assert.Equal(t, queries[2].Name, "InsertUser")
+	assert.Equal(t, queries[2].Cmd, CommandExec)
 }
 
 func TestParseRequiresAnnotations(t *testing.T) {
 	t.Parallel()
 	_, err := ParseSQL("bad.sql", "SELECT 1")
-	if err == nil {
-		t.Fatal("expected missing annotation error")
-	}
+	assert.Assert(t, err != nil, "expected missing annotation error")
 }
