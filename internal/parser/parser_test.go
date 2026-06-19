@@ -69,7 +69,7 @@ WHERE email = 'admin@example.com'
 func TestParseAnnotatedSQL(t *testing.T) {
 	t.Parallel()
 	queries, err := ParseSQL("queries.sql", `
--- name: GetUser :one
+-- name: GetUser :one row=User
 SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}
 
 -- name: SearchUsers :many
@@ -87,8 +87,14 @@ INSERT INTO users (user_id, username) VALUES ({user_id:Int64}, {username:String}
 	if queries[0].Name != "GetUser" || queries[0].Cmd != CommandOne {
 		t.Fatalf("queries[0] = %#v", queries[0])
 	}
+	if queries[0].RowType != "User" {
+		t.Fatalf("queries[0].RowType = %q, want User", queries[0].RowType)
+	}
 	if queries[1].Name != "SearchUsers" || queries[1].Cmd != CommandMany {
 		t.Fatalf("queries[1] = %#v", queries[1])
+	}
+	if queries[1].RowType != "" {
+		t.Fatalf("queries[1].RowType = %q, want empty", queries[1].RowType)
 	}
 	if queries[2].Name != "InsertUser" || queries[2].Cmd != CommandExec {
 		t.Fatalf("queries[2] = %#v", queries[2])

@@ -21,16 +21,17 @@ type Parameter struct {
 }
 
 type Query struct {
-	Name   string
-	Cmd    Command
-	SQL    string
-	Params []Parameter
-	Source string
-	Line   int
+	Name    string
+	Cmd     Command
+	SQL     string
+	Params  []Parameter
+	RowType string
+	Source  string
+	Line    int
 }
 
 var (
-	annotationRE = regexp.MustCompile(`^\s*--\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)\s+:(one|many|exec)\s*$`)
+	annotationRE = regexp.MustCompile(`^\s*--\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)\s+:(one|many|exec)(?:\s+(.*))?\s*$`)
 	parameterRE  = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*):([^}]+)\}`)
 )
 
@@ -76,11 +77,16 @@ func ParseSQL(source, content string) ([]Query, error) {
 			if err := flush(lineNo); err != nil {
 				return nil, err
 			}
+			rowType, err := parseAnnotationPragmas(match[3])
+			if err != nil {
+				return nil, fmt.Errorf("%s:%d: %w", source, lineNo, err)
+			}
 			current = &Query{
-				Name:   match[1],
-				Cmd:    Command(match[2]),
-				Source: source,
-				Line:   lineNo,
+				Name:    match[1],
+				Cmd:     Command(match[2]),
+				RowType: rowType,
+				Source:  source,
+				Line:    lineNo,
 			}
 			body = nil
 			continue
@@ -105,6 +111,26 @@ func ParseSQL(source, content string) ([]Query, error) {
 		return nil, fmt.Errorf("%s: no queries found", source)
 	}
 	return queries, nil
+}
+
+func parseAnnotationPragmas(input string) (string, error) {
+	var rowType string
+	for pragma := range strings.FieldsSeq(input) {
+		key, value, ok := strings.Cut(pragma, "=")
+		if !ok {
+			return "", fmt.Errorf("invalid pragma %q; expected key=value", pragma)
+		}
+		switch key {
+		case "row":
+			if value == "" {
+				return "", fmt.Errorf("row pragma must not be empty")
+			}
+			rowType = value
+		default:
+			return "", fmt.Errorf("unsupported pragma %q", key)
+		}
+	}
+	return rowType, nil
 }
 
 func ParseFiles(paths []string) ([]Query, error) {

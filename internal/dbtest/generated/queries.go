@@ -22,12 +22,6 @@ type GetNumberRow struct {
 	Number uint64 `json:"number" ch:"number"`
 }
 
-type GetNumberProjection interface {
-	GetNumber() uint64
-}
-
-func (r *GetNumberRow) GetNumber() uint64 { return r.Number }
-
 func getNumberArgs(number uint64) clickhouse.Parameters {
 	return clickhouse.Parameters{
 		"number": strconv.FormatUint(uint64(number), 10),
@@ -50,15 +44,6 @@ type ListNumbersRow struct {
 	Number  uint64 `json:"number" ch:"number"`
 	Doubled uint64 `json:"doubled" ch:"doubled"`
 }
-
-type ListNumbersProjection interface {
-	GetNumber() uint64
-	GetDoubled() uint64
-}
-
-func (r *ListNumbersRow) GetNumber() uint64 { return r.Number }
-
-func (r *ListNumbersRow) GetDoubled() uint64 { return r.Doubled }
 
 func listNumbersArgs(maxNumber uint64) clickhouse.Parameters {
 	return clickhouse.Parameters{
@@ -93,12 +78,6 @@ const rangeNumbersSQL = "SELECT number FROM system.numbers WHERE number >= {min_
 type RangeNumbersRow struct {
 	Number uint64 `json:"number" ch:"number"`
 }
-
-type RangeNumbersProjection interface {
-	GetNumber() uint64
-}
-
-func (r *RangeNumbersRow) GetNumber() uint64 { return r.Number }
 
 func rangeNumbersArgs(minNumber uint64, maxNumber uint64) clickhouse.Parameters {
 	return clickhouse.Parameters{

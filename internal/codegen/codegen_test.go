@@ -37,8 +37,6 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		"type GetUserRow struct",
 		"UserID",
 		"`json:\"user_id\" ch:\"user_id\"`",
-		"type GetUserProjection interface",
-		"func (r *GetUserRow) GetUserID() int64",
 		").ScanStruct(&row); err != nil",
 		"SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}",
 		"ctx = clickhouse.Context(ctx, clickhouse.WithParameters(getUserArgs(userID)))",
@@ -47,6 +45,119 @@ func TestGenerateGoldenOutput(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestGenerateSharedRowAnnotation(t *testing.T) {
+	t.Parallel()
+	generated, err := Generate(Options{PackageName: "generated"}, []QuerySpec{
+		{
+			Query: parser.Query{
+				Name:    "FindUserByID",
+				Cmd:     parser.CommandOne,
+				SQL:     "SELECT user_id, username FROM users WHERE user_id = {user_id:Int64}",
+				RowType: "User",
+				Params: []parser.Parameter{
+					{Name: "user_id", ClickHouseType: "Int64"},
+				},
+			},
+			Result: []schema.Column{
+				{Name: "user_id", ClickHouseType: "Int64"},
+				{Name: "username", ClickHouseType: "String"},
+			},
+		},
+		{
+			Query: parser.Query{
+				Name:    "FindUsers",
+				Cmd:     parser.CommandMany,
+				SQL:     "SELECT user_id, username FROM users WHERE username = {username:String}",
+				RowType: "User",
+				Params: []parser.Parameter{
+					{Name: "username", ClickHouseType: "String"},
+				},
+			},
+			Result: []schema.Column{
+				{Name: "user_id", ClickHouseType: "Int64"},
+				{Name: "username", ClickHouseType: "String"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := string(generated)
+	for _, want := range []string{
+		"type UserRow struct",
+		"func FindUserByID(ctx context.Context, db DBQuerier, userID int64) (UserRow, error)",
+		"func FindUsers(ctx context.Context, db DBQuerier, username string) ([]UserRow, error)",
+		"var row UserRow",
+		"var out []UserRow",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated output missing %q:\n%s", want, got)
+		}
+	}
+	if count := strings.Count(got, "type UserRow struct"); count != 1 {
+		t.Fatalf("UserRow emitted %d times, want 1:\n%s", count, got)
+	}
+}
+
+func TestGenerateSharedRowAnnotationRejectsIncompatibleShape(t *testing.T) {
+	t.Parallel()
+	_, err := Generate(Options{PackageName: "generated"}, []QuerySpec{
+		{
+			Query: parser.Query{Name: "FindUserByID", Cmd: parser.CommandOne, SQL: "SELECT user_id, username FROM users", RowType: "User"},
+			Result: []schema.Column{
+				{Name: "user_id", ClickHouseType: "Int64"},
+				{Name: "username", ClickHouseType: "String"},
+			},
+		},
+		{
+			Query: parser.Query{Name: "FindUsers", Cmd: parser.CommandMany, SQL: "SELECT user_id, username FROM users", RowType: "User"},
+			Result: []schema.Column{
+				{Name: "user_id", ClickHouseType: "Int64"},
+				{Name: "username", ClickHouseType: "Nullable(String)"},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected incompatible shared row shape error")
+	}
+	for _, want := range []string{
+		"row=User used by incompatible queries FindUserByID and FindUsers",
+		`name="username" field=Username type=string nullable=false`,
+		`name="username" field=Username type=*string nullable=true`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+}
+
+func TestGenerateSharedRowAnnotationKeepsSingleColumnScalar(t *testing.T) {
+	t.Parallel()
+	generated, err := Generate(Options{PackageName: "generated"}, []QuerySpec{
+		{
+			Query:  parser.Query{Name: "FindUserID", Cmd: parser.CommandOne, SQL: "SELECT user_id FROM users", RowType: "User"},
+			Result: []schema.Column{{Name: "user_id", ClickHouseType: "Int64"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := string(generated)
+	for _, want := range []string{
+		"func FindUserID(ctx context.Context, db DBQuerier) (int64, error)",
+		"type FindUserIDRow struct",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "type UserRow struct") {
+		t.Fatalf("single-column row annotation emitted shared row struct:\n%s", got)
 	}
 }
 

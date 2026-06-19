@@ -55,3 +55,20 @@ func TestMapOverrides(t *testing.T) {
 		t.Fatalf("override Map(JSON) = %q", got)
 	}
 }
+
+func TestIsNullable(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"String":                            false,
+		"Nullable(String)":                  true,
+		"LowCardinality(String)":            false,
+		"LowCardinality(Nullable(String))":  true,
+		"Array(Nullable(String))":           false,
+		"Nullable(Array(Nullable(String)))": true,
+	}
+	for chType, want := range cases {
+		if got := IsNullable(chType); got != want {
+			t.Fatalf("IsNullable(%q) = %t, want %t", chType, got, want)
+		}
+	}
+}

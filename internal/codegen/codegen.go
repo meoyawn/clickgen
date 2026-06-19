@@ -37,16 +37,20 @@ type fieldModel struct {
 	FieldName    string
 	CHType       string
 	GoType       string
+	Nullable     bool
 }
 
 type queryModel struct {
-	OriginalName string
-	MethodName   string
-	ConstName    string
-	Kind         parser.Command
-	SQL          string
-	Params       []paramModel
-	Fields       []fieldModel
+	OriginalName  string
+	MethodName    string
+	ConstName     string
+	RowType       string
+	RowName       string
+	ShouldEmitRow bool
+	Kind          parser.Command
+	SQL           string
+	Params        []paramModel
+	Fields        []fieldModel
 }
 
 func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
@@ -76,6 +80,9 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 			needsParams = true
 		}
 		models = append(models, model)
+	}
+	if err := assignSharedRows(models); err != nil {
+		return nil, err
 	}
 	if needsParams {
 		imports["github.com/ClickHouse/clickhouse-go/v2"] = struct{}{}
@@ -109,13 +116,24 @@ func Generate(opts Options, specs []QuerySpec) ([]byte, error) {
 func buildModel(spec QuerySpec, overrides chtype.Overrides) (queryModel, map[string]struct{}, bool, error) {
 	query := spec.Query
 	model := queryModel{
-		OriginalName: query.Name,
-		MethodName:   exportedIdentifier(query.Name),
-		ConstName:    unexportedIdentifier(query.Name) + "SQL",
-		Kind:         query.Cmd,
-		SQL:          query.SQL,
+		OriginalName:  query.Name,
+		MethodName:    exportedIdentifier(query.Name),
+		ConstName:     unexportedIdentifier(query.Name) + "SQL",
+		RowName:       exportedIdentifier(query.Name) + "Row",
+		ShouldEmitRow: true,
+		Kind:          query.Cmd,
+		SQL:           query.SQL,
 	}
 	imports := map[string]struct{}{}
+	if query.RowType != "" {
+		if query.Cmd == parser.CommandExec {
+			return model, nil, false, fmt.Errorf("query %s uses row=%s with :exec; row is only supported for result queries", query.Name, query.RowType)
+		}
+		model.RowType = exportedIdentifier(query.RowType)
+		if model.RowType == "" {
+			return model, nil, false, fmt.Errorf("query %s has invalid row pragma %q", query.Name, query.RowType)
+		}
+	}
 
 	for _, param := range query.Params {
 		goType := chtype.Map(param.ClickHouseType, overrides)
@@ -152,11 +170,79 @@ func buildModel(spec QuerySpec, overrides chtype.Overrides) (queryModel, map[str
 				FieldName:    fieldName,
 				CHType:       column.ClickHouseType,
 				GoType:       goType.Name,
+				Nullable:     chtype.IsNullable(column.ClickHouseType),
 			})
 		}
 	}
 
 	return model, imports, len(model.Params) > 0, nil
+}
+
+type sharedRowShape struct {
+	QueryName string
+	Fields    []sharedRowField
+}
+
+type sharedRowField struct {
+	OriginalName string
+	FieldName    string
+	GoType       string
+	Nullable     bool
+}
+
+func assignSharedRows(models []queryModel) error {
+	seen := map[string]sharedRowShape{}
+	for idx := range models {
+		model := &models[idx]
+		if model.RowType == "" || len(model.Fields) <= 1 {
+			continue
+		}
+
+		model.RowName = model.RowType + "Row"
+		shape := makeSharedRowShape(*model)
+		prev, ok := seen[model.RowType]
+		if !ok {
+			seen[model.RowType] = shape
+			continue
+		}
+		if diff := compareSharedRowShape(prev, shape); diff != "" {
+			return fmt.Errorf("row=%s used by incompatible queries %s and %s: %s", model.RowType, prev.QueryName, model.MethodName, diff)
+		}
+		model.ShouldEmitRow = false
+	}
+	return nil
+}
+
+func makeSharedRowShape(model queryModel) sharedRowShape {
+	fields := make([]sharedRowField, 0, len(model.Fields))
+	for _, field := range model.Fields {
+		fields = append(fields, sharedRowField{
+			OriginalName: field.OriginalName,
+			FieldName:    field.FieldName,
+			GoType:       field.GoType,
+			Nullable:     field.Nullable,
+		})
+	}
+	return sharedRowShape{QueryName: model.MethodName, Fields: fields}
+}
+
+func compareSharedRowShape(want, got sharedRowShape) string {
+	if len(want.Fields) != len(got.Fields) {
+		return fmt.Sprintf("column count differs: %s has %d columns, %s has %d columns",
+			want.QueryName, len(want.Fields), got.QueryName, len(got.Fields))
+	}
+	for idx := range want.Fields {
+		if want.Fields[idx] == got.Fields[idx] {
+			continue
+		}
+		return fmt.Sprintf("column %d differs: %s has %s, %s has %s",
+			idx+1, want.QueryName, describeSharedRowField(want.Fields[idx]), got.QueryName, describeSharedRowField(got.Fields[idx]))
+	}
+	return ""
+}
+
+func describeSharedRowField(field sharedRowField) string {
+	return fmt.Sprintf("name=%q field=%s type=%s nullable=%t", field.OriginalName, field.FieldName, field.GoType, field.Nullable)
 }
 
 func writeImports(b *strings.Builder, imports map[string]struct{}) {
@@ -195,7 +281,7 @@ func writeQuery(b *strings.Builder, model queryModel, formatters *queryParameter
 	if len(model.Params) >= 3 {
 		writeParamsStruct(b, model)
 	}
-	if len(model.Fields) > 0 {
+	if len(model.Fields) > 0 && model.ShouldEmitRow {
 		writeRow(b, model)
 	}
 	if len(model.Params) > 0 {
@@ -254,9 +340,8 @@ func writeParamsStruct(b *strings.Builder, model queryModel) {
 }
 
 func writeRow(b *strings.Builder, model queryModel) {
-	rowName := model.MethodName + "Row"
 	b.WriteString("type ")
-	b.WriteString(rowName)
+	b.WriteString(model.RowName)
 	b.WriteString(" struct {\n")
 	for _, field := range model.Fields {
 		b.WriteString("\t")
@@ -270,30 +355,6 @@ func writeRow(b *strings.Builder, model queryModel) {
 		b.WriteString("\"`\n")
 	}
 	b.WriteString("}\n\n")
-
-	b.WriteString("type ")
-	b.WriteString(model.MethodName)
-	b.WriteString("Projection interface {\n")
-	for _, field := range model.Fields {
-		b.WriteString("\tGet")
-		b.WriteString(field.FieldName)
-		b.WriteString("() ")
-		b.WriteString(field.GoType)
-		b.WriteString("\n")
-	}
-	b.WriteString("}\n\n")
-
-	for _, field := range model.Fields {
-		b.WriteString("func (r *")
-		b.WriteString(rowName)
-		b.WriteString(") Get")
-		b.WriteString(field.FieldName)
-		b.WriteString("() ")
-		b.WriteString(field.GoType)
-		b.WriteString(" { return r.")
-		b.WriteString(field.FieldName)
-		b.WriteString(" }\n\n")
-	}
 }
 
 func writeArgsHelper(b *strings.Builder, model queryModel, formatters *queryParameterFormatterRegistry) {
@@ -350,9 +411,8 @@ func writeMethod(b *strings.Builder, model queryModel) {
 		b.WriteString(model.ConstName)
 		b.WriteString(")\n")
 	case parser.CommandOne:
-		rowName := model.MethodName + "Row"
 		b.WriteString("\tvar row ")
-		b.WriteString(rowName)
+		b.WriteString(model.RowName)
 		b.WriteString("\n")
 		b.WriteString("\tif err := db.QueryRow(ctx, ")
 		b.WriteString(model.ConstName)
@@ -363,7 +423,7 @@ func writeMethod(b *strings.Builder, model queryModel) {
 			b.WriteString("\n\t\treturn zero, err\n")
 		} else {
 			b.WriteString("\t\treturn ")
-			b.WriteString(rowName)
+			b.WriteString(model.RowName)
 			b.WriteString("{}, err\n")
 		}
 		b.WriteString("\t}\n")
@@ -375,18 +435,17 @@ func writeMethod(b *strings.Builder, model queryModel) {
 			b.WriteString("\treturn row, nil\n")
 		}
 	case parser.CommandMany:
-		rowName := model.MethodName + "Row"
 		b.WriteString("\trows, err := db.Query(ctx, ")
 		b.WriteString(model.ConstName)
 		b.WriteString(")\n")
 		b.WriteString("\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 		b.WriteString("\tdefer rows.Close()\n\n")
 		b.WriteString("\tvar out []")
-		b.WriteString(rowName)
+		b.WriteString(model.RowName)
 		b.WriteString("\n")
 		b.WriteString("\tfor rows.Next() {\n")
 		b.WriteString("\t\tvar row ")
-		b.WriteString(rowName)
+		b.WriteString(model.RowName)
 		b.WriteString("\n")
 		b.WriteString("\t\tif err := rows.ScanStruct(&row); err != nil {\n\t\t\treturn nil, err\n\t\t}\n")
 		b.WriteString("\t\tout = append(out, row)\n")
@@ -446,12 +505,12 @@ func returnSignature(model queryModel) string {
 	case parser.CommandExec:
 		return "error"
 	case parser.CommandMany:
-		return "([]" + model.MethodName + "Row, error)"
+		return "([]" + model.RowName + ", error)"
 	case parser.CommandOne:
 		if len(model.Fields) == 1 {
 			return "(" + model.Fields[0].GoType + ", error)"
 		}
-		return "(" + model.MethodName + "Row, error)"
+		return "(" + model.RowName + ", error)"
 	default:
 		return "error"
 	}

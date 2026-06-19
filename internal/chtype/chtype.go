@@ -94,6 +94,27 @@ func DefaultLiteral(chType string) string {
 	}
 }
 
+func IsNullable(chType string) bool {
+	chType = strings.TrimSpace(chType)
+	for {
+		fn, args, ok := function(chType)
+		if !ok {
+			return false
+		}
+		switch fn {
+		case "Nullable":
+			return len(args) == 1
+		case "LowCardinality":
+			if len(args) != 1 {
+				return false
+			}
+			chType = args[0]
+		default:
+			return false
+		}
+	}
+}
+
 func mapType(chType string, overrides Overrides) GoType {
 	if fn, args, ok := function(chType); ok {
 		switch fn {
